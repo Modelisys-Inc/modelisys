@@ -6,12 +6,12 @@ import { Footer } from "@/components/footer"
 export const metadata: Metadata = {
   title: "Services | Modelisys",
   description:
-    "Mandats ponctuels, accompagnement financier, licence du moteur Excel Modelisys et développement sur mesure — pour comprendre, planifier et agir sur la valeur de votre entreprise.",
+    "Accompagnement financier, licence du moteur Excel Modelisys et développement sur mesure — pour comprendre, planifier et agir sur la valeur de votre entreprise.",
   alternates: { canonical: "/services" },
   openGraph: {
     title: "Services | Modelisys",
     description:
-      "Mandats ponctuels, accompagnement financier, licence Excel et développement sur mesure adaptés à votre réalité.",
+      "Accompagnement financier, licence Excel et développement sur mesure adaptés à votre réalité.",
     url: "/services",
   },
 }

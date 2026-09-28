@@ -1,4 +1,4 @@
-export type ServicesPagePillarId = "mandats" | "accompagnement" | "licence" | "developpement"
+export type ServicesPagePillarId = "accompagnement" | "licence" | "developpement"
 
 export type ServicesPageOffering = {
   title: string
@@ -50,63 +50,12 @@ export const SERVICES_PAGE_INTRO = {
 
 export const SERVICES_PAGE_PILLARS: readonly ServicesPagePillar[] = [
   {
-    id: "mandats",
-    number: "01",
-    label: "Mandats ponctuels",
-    tagline: "Une question précise. Une analyse solide.",
-    intro:
-      "Diagnostic, projections ou valorisation : Modelisys intervient le temps de répondre à une question, sans engagement récurrent.",
-    offerings: [
-      {
-        title: "Diagnostic",
-        lead: "Comprendre ce qui se passe réellement dans l’entreprise.",
-        body: "Analyse de la performance, de la rentabilité, de la trésorerie, de la structure financière et des principaux leviers de création de valeur.",
-        examples: [
-          "Diagnostic financier annuel",
-          "Analyse de performance",
-          "Analyse des marges",
-          "Analyse de la structure financière",
-          "Analyse des principaux leviers de création de valeur",
-        ],
-      },
-      {
-        title: "Projections",
-        lead: "Comprendre ce qui pourrait arriver avant de prendre une décision.",
-        body: "Modélisation de différents scénarios pour mesurer l’impact financier des décisions et des changements prévus.",
-        examples: [
-          "Projection financière 12 à 36 mois",
-          "Scénarios de croissance",
-          "Plan d’investissement",
-          "Analyse d’une embauche",
-          "Acquisition d’équipement",
-          "Acquisition d’entreprise",
-          "Besoins de financement",
-        ],
-      },
-      {
-        title: "Valorisation",
-        lead: "Comprendre la valeur actuelle, sa projection et le rendement visé.",
-        body: "Analyse de la valeur à des fins de gestion : établir un repère, projeter son évolution, fixer un rendement cible et identifier les facteurs qui peuvent contribuer à l’atteindre.",
-        examples: [
-          "Établir une valeur à des fins de gestion",
-          "Analyse des principaux risques du modèle d’affaires",
-          "Identification des facteurs de création de valeur",
-          "Valeur comptable ajustée",
-          "Projection de la valeur",
-          "Rendement cible",
-          "Fourchette de valeur pour le suivi interne",
-        ],
-      },
-    ],
-    cases: [],
-  },
-  {
     id: "accompagnement",
-    number: "02",
+    number: "01",
     label: "Accompagnement financier",
-    tagline: "Un partenaire financier à temps partiel",
+    tagline: "Un accompagnement financier innovant",
     intro:
-      "Un relais senior, au rythme de l’entreprise — sans recruter un directeur financier à temps plein. Les livres alimentent le contrôle, le contrôle rend la performance lisible, la performance éclaire les projections, et les projections portent la valorisation.",
+      "Un accompagnement tourné vers l’optimisation du rendement et l’augmentation de la valeur de l’entreprise — sans recruter un directeur financier à temps plein. Les livres alimentent le contrôle, le contrôle rend la performance lisible, la performance éclaire les projections, et les projections portent la valorisation.",
     offerings: [
       {
         title: "Tenue de livres",
@@ -163,8 +112,8 @@ export const SERVICES_PAGE_PILLARS: readonly ServicesPagePillar[] = [
   },
   {
     id: "licence",
-    number: "03",
-    label: "Licence",
+    number: "02",
+    label: "Licence Modelisys",
     tagline: "Le moteur Excel Modelisys",
     intro:
       "Une infrastructure financière structurée permettant à votre équipe de réaliser ses analyses, projections, valorisation et suivis dans Excel.",
@@ -255,7 +204,7 @@ export const SERVICES_PAGE_PILLARS: readonly ServicesPagePillar[] = [
   },
   {
     id: "developpement",
-    number: "04",
+    number: "03",
     label: "Développement sur mesure",
     tagline: "Votre réalité ne correspond pas à un modèle standard ?",
     intro:
@@ -292,10 +241,11 @@ export const SERVICES_PAGE_PILLARS: readonly ServicesPagePillar[] = [
         lead: "Créer un modèle qui n’existe pas encore.",
         body: "Nouveau modèle selon votre structure, vos données, vos processus et les analyses que vous voulez produire. Le livrable reste un Excel que l’équipe peut faire vivre.",
         examples: [
+          "Développement d’un tableau de bord",
+          "Développement d’un processus de coût de revient",
+          "Développement d’un outil de simulation et de scénarios",
           "Modèle financier multi-entités ou multi-divisions",
           "Consolidation de groupe",
-          "Budget, projections et suivi réel vs plan",
-          "Rapport de gestion récurrent",
         ],
       },
       {
@@ -382,13 +332,8 @@ export const SERVICES_PAGE_PILLARS: readonly ServicesPagePillar[] = [
 
 export const SERVICES_PAGE_CLOSING = {
   title: "Une intervention adaptée à votre situation",
-  body: "Vous n’avez pas nécessairement besoin d’un accompagnement permanent. Parfois, une question précise nécessite simplement une analyse solide. Parfois, l’entreprise a besoin d’un partenaire financier dans le temps. Modelisys intervient au niveau dont votre entreprise a réellement besoin.",
+  body: "Parfois, l’entreprise a besoin d’un partenaire financier dans le temps. Parfois, l’équipe interne veut un moteur structuré. Parfois, le modèle standard ne suffit pas. Modelisys intervient au niveau dont votre entreprise a réellement besoin.",
   choices: [
-    {
-      id: "mandats" as const,
-      label: "Mandats ponctuels",
-      detail: "Diagnostic · Projections · Valorisation",
-    },
     {
       id: "accompagnement" as const,
       label: "Accompagnement financier",
@@ -396,7 +341,7 @@ export const SERVICES_PAGE_CLOSING = {
     },
     {
       id: "licence" as const,
-      label: "Licence",
+      label: "Licence Modelisys",
       detail: "Moteur Excel Modelisys · Formation · Autonomie",
     },
     {
@@ -409,14 +354,9 @@ export const SERVICES_PAGE_CLOSING = {
 
 /** Chemins dédiés sous `/services/…` (landing « Découvrir », sitemap, liens croisés). */
 export const SERVICES_PAGE_SLUGS: Record<ServicesPagePillarId, string> = {
-  mandats: "mandats-ponctuels",
   accompagnement: "accompagnement-financier",
   licence: "licences",
   developpement: "developpement-sur-mesure",
-}
-
-const LEGACY_SLUGS: Record<string, ServicesPagePillarId> = {
-  "services-conseils": "mandats",
 }
 
 export function getServicePagePath(id: ServicesPagePillarId): string {
@@ -424,10 +364,6 @@ export function getServicePagePath(id: ServicesPagePillarId): string {
 }
 
 export function getServicesPillarBySlug(slug: string): ServicesPagePillar | null {
-  const fromLegacy = LEGACY_SLUGS[slug]
-  if (fromLegacy) {
-    return SERVICES_PAGE_PILLARS.find((p) => p.id === fromLegacy) ?? null
-  }
   const entry = (Object.entries(SERVICES_PAGE_SLUGS) as [ServicesPagePillarId, string][]).find(
     ([, s]) => s === slug,
   )
@@ -436,5 +372,5 @@ export function getServicesPillarBySlug(slug: string): ServicesPagePillar | null
 }
 
 export function getAllServicePageSlugs(): string[] {
-  return [...Object.values(SERVICES_PAGE_SLUGS), ...Object.keys(LEGACY_SLUGS)]
+  return Object.values(SERVICES_PAGE_SLUGS)
 }

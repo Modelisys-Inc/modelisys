@@ -47,7 +47,7 @@ test.describe("Landing — approche et leviers de valeur", () => {
     expect(servicesBox!.y).toBeLessThan(approcheBox!.y)
   })
 
-  test("section Nos services présente Mandats, Accompagnement, Licence et Développement", async ({
+  test("section Nos services présente Accompagnement, Licence et Développement", async ({
     page,
   }) => {
     const section = page.locator("#nos-services")
@@ -58,14 +58,16 @@ test.describe("Landing — approche et leviers de valeur", () => {
       section.getByRole("heading", { name: "Le bon niveau d'intervention, au bon moment" }),
     ).toBeVisible()
     await expect(section.getByText("Aperçu — Mise en place")).toHaveCount(0)
-    await expect(section.getByRole("button", { name: /Mandats ponctuels/ }).first()).toBeVisible()
+    await expect(section.getByRole("button", { name: /Mandats ponctuels/ })).toHaveCount(0)
     await expect(
       section.getByRole("button", { name: /Accompagnement financier/ }).first(),
     ).toBeVisible()
-    await expect(section.getByRole("button", { name: /Licence/ }).first()).toBeVisible()
+    await expect(section.getByRole("button", { name: /Licence Modelisys/ }).first()).toBeVisible()
     await expect(section.getByRole("button", { name: /Développement/ }).first()).toBeVisible()
-    await expect(section.getByText("Une question précise. Une analyse solide.")).toBeVisible()
-    await expect(section.getByText("Un partenaire financier à temps partiel")).toBeVisible()
+    await expect(section.getByText("Une question précise. Une analyse solide.")).toHaveCount(0)
+    await expect(section.getByText("Un accompagnement financier innovant")).toBeVisible()
+    await expect(section.getByText(/Optimiser le rendement et augmenter la valeur/i)).toBeVisible()
+    await expect(section.getByText(/relais senior/i)).toHaveCount(0)
     await expect(section.getByText("Le moteur Excel Modelisys", { exact: true })).toBeVisible()
     await expect(
       section.getByText("Votre réalité ne correspond pas à un modèle standard ?"),
@@ -73,15 +75,12 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.getByRole("tab")).toHaveCount(0)
     await expect(
       section.getByRole("link", { name: "Découvrir" }).nth(0),
-    ).toHaveAttribute("href", "/services/mandats-ponctuels")
-    await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(1),
     ).toHaveAttribute("href", "/services/accompagnement-financier")
     await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(2),
+      section.getByRole("link", { name: "Découvrir" }).nth(1),
     ).toHaveAttribute("href", "/services/licences")
     await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(3),
+      section.getByRole("link", { name: "Découvrir" }).nth(2),
     ).toHaveAttribute("href", "/services/developpement-sur-mesure")
     await expect(
       section.getByRole("heading", { name: "Une approche qui s'adapte à votre entreprise" }),

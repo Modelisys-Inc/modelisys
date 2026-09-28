@@ -1,4 +1,4 @@
-export type ServiceId = "mandats" | "accompagnement" | "licence" | "developpement"
+export type ServiceId = "accompagnement" | "licence" | "developpement"
 
 export type ServiceOffering = {
   title: string
@@ -13,7 +13,7 @@ export type ServiceMarketingContent = {
   intro: string
   /** Phrase avant la liste (ex. « Selon vos besoins… » / « Nous pouvons notamment : »). */
   listLead?: string
-  /** Blocs intitulés (mandats ponctuels). */
+  /** Blocs intitulés (accompagnement). */
   offerings?: readonly ServiceOffering[]
   /** Liste à puces (Licence, Développement). */
   bullets?: readonly string[]
@@ -23,58 +23,32 @@ export type ServiceMarketingContent = {
 }
 
 export const SERVICE_MARKETING_ORDER: ServiceId[] = [
-  "mandats",
   "accompagnement",
   "licence",
   "developpement",
 ]
 
 export const SERVICE_LABELS: Record<ServiceId, string> = {
-  mandats: "Mandats ponctuels",
   accompagnement: "Accompagnement financier",
-  licence: "Licence",
+  licence: "Licence Modelisys",
   developpement: "Développement",
 }
 
 /** Anciens hash / identifiants marketing → services actuels. */
 const LEGACY_SERVICE_ALIASES: Record<string, ServiceId> = {
-  conseils: "mandats",
-  "services-conseils": "mandats",
+  conseils: "accompagnement",
+  "services-conseils": "accompagnement",
+  mandats: "accompagnement",
 }
 
 export const SERVICE_MARKETING_CONTENT: Record<ServiceId, ServiceMarketingContent> = {
-  mandats: {
-    id: "mandats",
-    number: "01",
-    label: "Mandats ponctuels",
-    tagline: "Une question précise. Une analyse solide.",
-    intro:
-      "Diagnostic, projections ou valorisation — des interventions ciblées pour répondre à une question, sans engagement récurrent.",
-    listLead: "Les mandats ponctuels peuvent prendre la forme de :",
-    offerings: [
-      {
-        title: "Diagnostic de l’entreprise",
-        body: "Une lecture claire de la performance, de la rentabilité, de la trésorerie, des risques et des leviers qui influencent la valeur — pour fixer un point de départ objectif.",
-      },
-      {
-        title: "Projections financières",
-        body: "Scénarios, prévisions et analyse d’impact sur les mois et années à venir : investissements, croissance, financement et trajectoire de valeur.",
-      },
-      {
-        title: "Valorisation",
-        body: "Analyse de la valeur à des fins de gestion : établir un repère, projeter son évolution, fixer un rendement cible et identifier les facteurs qui peuvent contribuer à l’atteindre.",
-      },
-    ],
-    idealFor:
-      "les dirigeants qui ont une question précise et ont besoin d’une analyse ponctuelle avant de décider.",
-  },
   accompagnement: {
     id: "accompagnement",
-    number: "02",
+    number: "01",
     label: "Accompagnement financier",
-    tagline: "Un partenaire financier à temps partiel",
+    tagline: "Un accompagnement financier innovant",
     intro:
-      "Tenue, contrôle, performance, projections et valorisation — un partenaire dans le temps, sans recruter un directeur financier à temps plein.",
+      "Optimiser le rendement et augmenter la valeur — tenue, contrôle, performance, projections et valorisation, sans recruter un directeur financier à temps plein.",
     listLead: "L’accompagnement financier relie notamment :",
     offerings: [
       {
@@ -99,12 +73,12 @@ export const SERVICE_MARKETING_CONTENT: Record<ServiceId, ServiceMarketingConten
       },
     ],
     idealFor:
-      "les entreprises qui ont besoin d’un partenaire financier récurrent, sans internaliser une fonction à temps plein.",
+      "les entreprises qui veulent optimiser leur rendement et augmenter leur valeur, avec un accompagnement financier récurrent — sans internaliser une fonction à temps plein.",
   },
   licence: {
     id: "licence",
-    number: "03",
-    label: "Licence",
+    number: "02",
+    label: "Licence Modelisys",
     tagline: "Le moteur Excel Modelisys",
     intro:
       "Une infrastructure financière structurée permettant à votre équipe de réaliser ses analyses, projections, valorisation et suivis dans Excel.",
@@ -128,7 +102,7 @@ export const SERVICE_MARKETING_CONTENT: Record<ServiceId, ServiceMarketingConten
   },
   developpement: {
     id: "developpement",
-    number: "04",
+    number: "03",
     label: "Développement sur mesure",
     tagline: "Votre réalité ne correspond pas à un modèle standard ?",
     intro:
@@ -136,7 +110,7 @@ export const SERVICE_MARKETING_CONTENT: Record<ServiceId, ServiceMarketingConten
     listLead: "Trois façons d’intervenir :",
     bullets: [
       "adapter un fichier Excel existant — le rendre fiable sans changer d’outil ;",
-      "développer un nouveau modèle selon votre structure, vos données et vos analyses ;",
+      "développer un nouveau modèle : tableau de bord, coût de revient, simulation et scénarios ;",
       "étendre le moteur Modelisys d’une analyse ou d’un rapport que le standard ne porte pas.",
     ],
     afterList: [

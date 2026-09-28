@@ -1,8 +1,8 @@
 /**
- * Contenu marketing — page Accompagnement financier (partenaire à temps partiel).
+ * Contenu marketing — page Accompagnement financier.
  * Cinq leviers reliés : les livres alimentent le contrôle, le contrôle rend
  * la performance lisible, la performance éclaire les projections, et les
- * projections portent la valorisation.
+ * projections portent la valorisation — pour le rendement et la valeur.
  */
 
 export type ServicesAccompagnementOffering = {
@@ -28,11 +28,11 @@ export type ServicesAccompagnementCase = {
 
 export const SERVICES_ACCOMPAGNEMENT_PAGE = {
   eyebrow: "Accompagnement financier",
-  title: "Un partenaire financier à temps partiel",
+  title: "Un accompagnement financier innovant",
   intro:
-    "Un relais senior, au rythme de l’entreprise — sans recruter un directeur financier à temps plein. Les livres alimentent le contrôle, le contrôle rend la performance lisible, la performance éclaire les projections, et les projections portent la valorisation.",
+    "Un accompagnement tourné vers l’optimisation du rendement et l’augmentation de la valeur de l’entreprise — sans recruter un directeur financier à temps plein. Les livres alimentent le contrôle, le contrôle rend la performance lisible, la performance éclaire les projections, et les projections portent la valorisation.",
   allowsLead:
-    "Cinq leviers, une même lecture. Chaque pièce prépare la suivante — et la valorisation revient informer ce qu’il faut suivre le mois d’après.",
+    "Cinq leviers, une même lecture. Chaque pièce prépare la suivante — et la valorisation revient informer ce qu’il faut suivre le mois d’après, pour le rendement et la valeur.",
 } as const
 
 export const SERVICES_ACCOMPAGNEMENT_OFFERINGS: readonly ServicesAccompagnementOffering[] = [

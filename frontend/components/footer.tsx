@@ -7,6 +7,7 @@ import { ArrowRight, FacebookIcon, InstagramIcon, LinkedinIcon } from "lucide-re
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
 import { heroFeatureFooterLinks } from "@/lib/hero-features"
+import { SERVICES_PAGE_PILLARS, getServicePagePath } from "@/lib/services-page-content"
 
 interface FooterLink {
   title: string
@@ -26,12 +27,11 @@ interface FooterSection {
 
 const footerLinks: FooterSection[] = [
   {
-    label: "Parcours",
-    links: [
-      { title: "Notre objectif", href: "/#notre-objectif" },
-      { title: "Nos services", href: "/services" },
-      { title: "Prendre rendez-vous", href: "/#demo" },
-    ],
+    label: "Nos services",
+    links: SERVICES_PAGE_PILLARS.map((pillar) => ({
+      title: pillar.label,
+      href: getServicePagePath(pillar.id),
+    })),
   },
   {
     label: "L'approche Modelisys",
@@ -40,6 +40,7 @@ const footerLinks: FooterSection[] = [
   {
     label: "Entreprise",
     links: [
+      { title: "Notre objectif", href: "/#notre-objectif" },
       { title: "À propos", href: "/a-propos" },
       { title: "Contact", href: "/contact" },
       { title: "Politique de confidentialité", href: "/privacy" },

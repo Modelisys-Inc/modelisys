@@ -27,7 +27,7 @@ function scrollToPillar(id: ServicesPagePillarId) {
 }
 
 export function ServicesPageSection() {
-  const [activeId, setActiveId] = useState<ServicesPagePillarId>("mandats")
+  const [activeId, setActiveId] = useState<ServicesPagePillarId>("accompagnement")
 
   useEffect(() => {
     const fromHash = () => {
@@ -128,7 +128,7 @@ export function ServicesPageSection() {
             {SERVICES_PAGE_CLOSING.body}
           </p>
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
             {SERVICES_PAGE_CLOSING.choices.map((choice) => (
               <Link
                 key={choice.id}

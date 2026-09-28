@@ -42,6 +42,16 @@ const nextConfig = {
         destination: "/services",
         permanent: true,
       },
+      {
+        source: "/services/mandats-ponctuels",
+        destination: "/services",
+        permanent: true,
+      },
+      {
+        source: "/services/services-conseils",
+        destination: "/services",
+        permanent: true,
+      },
     ]
   },
   async rewrites() {

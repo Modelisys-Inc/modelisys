@@ -327,7 +327,7 @@ export function AboutOurStorySection() {
                 <div className="h-px w-full max-w-2xl bg-slate-200/90" aria-hidden />
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
                   Modelisys structure la méthode pour mesurer, visionner, modéliser, exécuter et ajuster. Les services —
-                  mandats ponctuels, accompagnement, licence ou développement — s&apos;activent selon le besoin. Un CPA qui
+                  accompagnement, licence ou développement — s&apos;activent selon le besoin. Un CPA qui
                   partage les mêmes chiffres peut enfin jouer pleinement son rôle de conseiller.
                 </p>
               </motion.div>

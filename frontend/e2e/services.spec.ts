@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 
 test.describe("Page Services", () => {
-  test("affiche les quatre piliers", async ({ page }) => {
+  test("affiche les trois piliers", async ({ page }) => {
     test.setTimeout(120000)
     await page.goto("/services", { waitUntil: "domcontentloaded", timeout: 90000 })
 
@@ -11,18 +11,20 @@ test.describe("Page Services", () => {
       }),
     ).toBeVisible({ timeout: 30000 })
 
-    await expect(page.getByRole("link", { name: "Mandats ponctuels" }).first()).toBeVisible()
+    await expect(page.getByRole("link", { name: "Mandats ponctuels" })).toHaveCount(0)
     await expect(page.getByRole("link", { name: "Accompagnement financier" }).first()).toBeVisible()
-    await expect(page.getByRole("link", { name: "Licence" }).first()).toBeVisible()
+    await expect(page.getByRole("link", { name: "Licence Modelisys" }).first()).toBeVisible()
     await expect(
       page.getByRole("link", { name: "Développement sur mesure" }).first(),
     ).toBeVisible()
 
-    await expect(page.locator("#services-mandats")).toContainText("Diagnostic")
-    await expect(page.locator("#services-mandats")).toContainText("Valorisation")
     await expect(page.locator("#services-accompagnement")).toContainText(
-      "partenaire financier à temps partiel",
+      "accompagnement financier innovant",
     )
+    await expect(page.locator("#services-accompagnement")).toContainText(
+      "optimisation du rendement",
+    )
+    await expect(page.getByText(/relais senior/i)).toHaveCount(0)
     await expect(page.locator("#services-licence")).toContainText("Le moteur Excel Modelisys")
     await expect(page.locator("#services-licence")).toContainText("Groupe de 6 entités")
     await expect(page.locator("#services-developpement")).toContainText("Adapter")
@@ -35,54 +37,6 @@ test.describe("Page Services", () => {
     ).toBeVisible()
   })
 
-  test("page Mandats ponctuels : trois lignes et un cas par ligne", async ({ page }) => {
-    await page.goto("/services/mandats-ponctuels", {
-      waitUntil: "domcontentloaded",
-      timeout: 90000,
-    })
-    await expect(
-      page.getByRole("heading", { name: /Une question précise\. Une analyse solide/i }),
-    ).toBeVisible({ timeout: 30000 })
-
-    const nav = page.getByRole("navigation", { name: "Lignes de mandats ponctuels" })
-    await expect(nav.getByRole("tab", { name: "Diagnostic" })).toBeVisible()
-    await expect(nav.getByRole("tab", { name: "Projections" })).toBeVisible()
-    await expect(nav.getByRole("tab", { name: "Valorisation" })).toBeVisible()
-    await expect(nav.getByRole("tab", { name: "Accompagnement" })).toHaveCount(0)
-
-    for (const id of ["diagnostic", "projections", "valorisation"]) {
-      const section = page.locator(`#conseils-${id}`)
-      await expect(section).toBeVisible()
-      await expect(section.getByText(new RegExp(`Cas · `, "i")).first()).toBeVisible()
-      await expect(section.getByText("Situation", { exact: true })).toBeVisible()
-      await expect(section.getByText("Intervention", { exact: true })).toBeVisible()
-      await expect(section.getByText("Résultat", { exact: true })).toBeVisible()
-    }
-
-    await expect(page.locator("#conseils-diagnostic")).toContainText("Cas · Diagnostic")
-    await expect(page.locator("#conseils-projections")).toContainText("Cas · Projections")
-    await expect(page.locator("#conseils-valorisation")).toContainText("Cas · Valorisation")
-    await expect(page.locator("#conseils-valorisation")).toContainText("Exemples")
-    await expect(page.locator("#conseils-valorisation")).toContainText(
-      "Établir une valeur à des fins de gestion",
-    )
-    await expect(page.locator("#conseils-valorisation")).toContainText(
-      "Analyse des principaux risques du modèle d’affaires",
-    )
-    await expect(page.locator("#conseils-valorisation")).toContainText("Projection de la valeur")
-    await expect(page.locator("#conseils-valorisation")).toContainText("Rendement cible")
-
-    await expect(page.getByRole("link", { name: "Services", exact: true })).toHaveCount(0)
-
-    const others = page.getByRole("region", { name: "Autres services" })
-    await expect(others).toBeVisible()
-    await expect(others.getByRole("link", { name: /Accompagnement financier/ })).toBeVisible()
-    await expect(others.getByRole("link", { name: /Le moteur Excel Modelisys/ })).toBeVisible()
-    await expect(
-      others.getByRole("link", { name: /Votre réalité ne correspond pas à un modèle standard/ }),
-    ).toBeVisible()
-  })
-
   test("page Accompagnement financier", async ({ page }) => {
     test.setTimeout(120000)
     await page.goto("/services/accompagnement-financier", {
@@ -90,8 +44,10 @@ test.describe("Page Services", () => {
       timeout: 90000,
     })
     await expect(
-      page.getByRole("heading", { name: /partenaire financier à temps partiel/i }),
+      page.getByRole("heading", { name: /accompagnement financier innovant/i }),
     ).toBeVisible({ timeout: 30000 })
+    await expect(page.getByText(/optimisation du rendement/i)).toBeVisible()
+    await expect(page.getByText(/relais senior/i)).toHaveCount(0)
     await expect(page.locator("#accompagnement-tenue")).toContainText("Tenue de livres")
     await expect(page.locator("#accompagnement-controle")).toContainText("Contrôle financier")
     await expect(page.locator("#accompagnement-performance")).toContainText(
@@ -128,6 +84,16 @@ test.describe("Page Services", () => {
     await expect(
       cases.getByRole("heading", { name: /écart mensuel au rendement cible/i }),
     ).toBeVisible()
+    const faq = page.getByTestId("services-faq")
+    await expect(faq.getByText("Questions fréquentes")).toBeVisible()
+    await expect(faq.getByRole("button")).toHaveCount(6)
+    await faq.getByRole("button", { name: /accompagnement financier est-il innovant/i }).click()
+    await expect(faq.getByText(/augmenter la valeur de l.entreprise/i)).toBeVisible()
+    await expect(
+      faq.getByRole("button", { name: /Quels sont les livrables/i }),
+    ).toBeVisible()
+    await faq.getByRole("button", { name: /Quels sont les livrables/i }).click()
+    await expect(faq.getByText(/rapports de performance/i)).toBeVisible()
     await expect(page.getByRole("link", { name: "Services", exact: true })).toHaveCount(0)
   })
 
@@ -137,7 +103,7 @@ test.describe("Page Services", () => {
     await expect(page.getByRole("heading", { name: /moteur Excel Modelisys/i })).toBeVisible({
       timeout: 30000,
     })
-    const licenceTabs = page.getByRole("tablist", { name: "Cas — Licence" })
+    const licenceTabs = page.getByRole("tablist", { name: "Cas — Licence Modelisys" })
     await expect(licenceTabs).toHaveAttribute("data-ready", "true", { timeout: 15000 })
     await expect(licenceTabs.getByRole("tab", { name: "Multi-entités" })).toBeVisible()
     await expect(licenceTabs.getByRole("tab", { name: "Autonomie" })).toBeVisible()
@@ -149,6 +115,11 @@ test.describe("Page Services", () => {
 
     await page.getByTestId("licence-cas-valorisation").click()
     await expect(page.getByRole("heading", { name: /Relier le moteur à la valeur/i })).toBeVisible()
+    const licenceFaq = page.getByTestId("services-faq")
+    await expect(licenceFaq.getByText("Questions fréquentes")).toBeVisible()
+    await expect(licenceFaq.getByRole("button")).toHaveCount(6)
+    await licenceFaq.getByRole("button", { name: /Qu.est-ce que la licence Modelisys/i }).click()
+    await expect(licenceFaq.getByText(/moteur Excel configuré/i)).toBeVisible()
     await expect(page.getByRole("link", { name: "Services", exact: true })).toHaveCount(0)
 
     await page.goto("/services/developpement-sur-mesure", {
@@ -159,6 +130,12 @@ test.describe("Page Services", () => {
       timeout: 30000,
     })
     await expect(page.getByText("Quand le sur-mesure s’impose")).toBeVisible()
+    await expect(page.getByText("Exemples de développements")).toHaveCount(0)
+    await expect(page.getByText("Développement d’un tableau de bord")).toBeVisible()
+    await expect(page.getByText("Développement d’un processus de coût de revient")).toBeVisible()
+    await expect(
+      page.getByText("Développement d’un outil de simulation et de scénarios"),
+    ).toBeVisible()
     await expect(page.getByText("Idéal pour")).toBeVisible()
     await expect(page.getByText(/licence pose le moteur/i)).toBeVisible()
     await expect(page.getByText("Adapter", { exact: true }).first()).toBeVisible()
@@ -169,6 +146,11 @@ test.describe("Page Services", () => {
     await expect(page.getByText("Automatisation d’un processus financier existant")).toBeVisible()
     await page.getByTestId("developpement-cas-analyse").click()
     await expect(page.getByRole("heading", { name: /analyse spécifique/i })).toBeVisible()
+    const devFaq = page.getByTestId("services-faq")
+    await expect(devFaq.getByText("Questions fréquentes")).toBeVisible()
+    await expect(devFaq.getByRole("button")).toHaveCount(6)
+    await devFaq.getByRole("button", { name: /tableau de bord/i }).click()
+    await expect(devFaq.getByText(/indicateurs, leviers/i)).toBeVisible()
     await expect(page.getByRole("link", { name: "Services", exact: true })).toHaveCount(0)
   })
 
@@ -179,17 +161,41 @@ test.describe("Page Services", () => {
     await expect(page).toHaveURL(/\/services/, { timeout: 15000 })
   })
 
-  test("le menu Nos services propose les quatre offres", async ({ page }) => {
+  test("le menu Nos services propose les trois offres", async ({ page }) => {
     test.setTimeout(120000)
     await page.goto("/", { waitUntil: "domcontentloaded", timeout: 90000 })
     const nav = page.locator("nav").first()
     await nav.getByRole("link", { name: "Nos services", exact: true }).hover()
-    await expect(nav.getByRole("link", { name: "Mandats ponctuels" })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Mandats ponctuels" })).toHaveCount(0)
     await expect(nav.getByRole("link", { name: "Accompagnement financier" })).toBeVisible()
-    await expect(nav.getByRole("link", { name: "Licence", exact: true })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Licence Modelisys", exact: true })).toBeVisible()
     await expect(nav.getByRole("link", { name: "Développement sur mesure" })).toBeVisible()
-    await nav.getByRole("link", { name: "Mandats ponctuels" }).click()
-    await expect(page).toHaveURL(/\/services\/mandats-ponctuels/, { timeout: 15000 })
+    await nav.getByRole("link", { name: "Accompagnement financier" }).click()
+    await expect(page).toHaveURL(/\/services\/accompagnement-financier/, { timeout: 15000 })
+  })
+
+  test("le footer liste les trois offres sous Nos services", async ({ page }) => {
+    test.setTimeout(120000)
+    await page.goto("/", { waitUntil: "domcontentloaded", timeout: 90000 })
+    const footer = page.locator("footer")
+    await expect(footer.getByRole("heading", { name: "Nos services" })).toBeVisible({
+      timeout: 30000,
+    })
+    await expect(footer.getByRole("heading", { name: "Parcours" })).toHaveCount(0)
+    await expect(footer.getByRole("link", { name: "Nos services", exact: true })).toHaveCount(0)
+    await expect(footer.getByRole("link", { name: "Accompagnement financier" })).toBeVisible()
+    await expect(footer.getByRole("link", { name: "Licence Modelisys", exact: true })).toBeVisible()
+    await expect(footer.getByRole("link", { name: "Développement sur mesure" })).toBeVisible()
+    await expect(footer.getByRole("link", { name: "Accompagnement financier" })).toHaveAttribute(
+      "href",
+      "/services/accompagnement-financier",
+    )
+    await expect(footer.getByRole("heading", { name: "Entreprise" })).toBeVisible()
+    await expect(footer.getByRole("link", { name: "Notre objectif" })).toBeVisible()
+    await expect(footer.getByRole("link", { name: "Notre objectif" })).toHaveAttribute(
+      "href",
+      "/#notre-objectif",
+    )
   })
 
   test("le menu Notre approche propose Comprendre, Planifier et Exécuter", async ({ page }) => {

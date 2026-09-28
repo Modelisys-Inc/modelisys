@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { ServicesFaqSection } from "@/components/services-faq-section"
 import { ServicesOtherServicesSection } from "@/components/services-other-services-section"
 import {
   SERVICES_ACCOMPAGNEMENT_CASES,
@@ -9,6 +10,7 @@ import {
   SERVICES_ACCOMPAGNEMENT_STEPS,
   type ServicesAccompagnementCase,
 } from "@/lib/services-accompagnement-content"
+import { getServicesFaq } from "@/lib/services-faq"
 import { cn } from "@/lib/utils"
 
 function AccompagnementCaseCard({ study }: { study: ServicesAccompagnementCase }) {
@@ -232,6 +234,8 @@ export function ServicesAccompagnementPageSection() {
             </div>
           </div>
         </section>
+
+        <ServicesFaqSection items={getServicesFaq("accompagnement")} />
 
         <div className="mt-16 sm:mt-20">
           <ServicesOtherServicesSection currentId="accompagnement" />
