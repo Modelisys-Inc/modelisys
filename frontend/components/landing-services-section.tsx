@@ -78,7 +78,52 @@ export function LandingServicesSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
           >
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+            <div className="sm:hidden">
+              <div role="tablist" aria-label="Services" className="grid grid-cols-3 gap-1 rounded-xl bg-white p-1 ring-1 ring-slate-200/90">
+                {SERVICE_MARKETING_ORDER.map((id) => {
+                  const isActive = activeService === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setActiveService(id)}
+                      className={cn(
+                        "min-h-11 rounded-lg px-1.5 py-2 text-center text-[11px] font-semibold leading-tight",
+                        isActive ? "bg-[#2A2F3A] text-[#E6D6C3] shadow-sm" : "text-slate-600",
+                      )}
+                    >
+                      {SERVICE_LABELS[id]}
+                    </button>
+                  )
+                })}
+              </div>
+              {SERVICE_MARKETING_ORDER.map((id) => {
+                if (id !== activeService) return null
+                const content = SERVICE_MARKETING_CONTENT[id]
+                return (
+                  <article key={id} className="mt-4 rounded-2xl border border-[#E0742D]/35 bg-white px-5 py-6 shadow-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">
+                      {content.label}
+                    </p>
+                    <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-[#2A2F3A]">
+                      {content.tagline}
+                    </h3>
+                    <p className="mt-3 text-[15px] leading-relaxed text-slate-600">{content.intro}</p>
+                    <Link
+                      href={getServicePagePath(id)}
+                      className="group mt-6 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#2A2F3A]"
+                    >
+                      Découvrir
+                      <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  </article>
+                )
+              })}
+            </div>
+
+            <div className="hidden grid-cols-3 gap-3 sm:grid">
               {SERVICE_MARKETING_ORDER.map((id, index) => (
                 <button
                   key={id}
@@ -96,7 +141,7 @@ export function LandingServicesSection() {
               ))}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3 sm:gap-3">
+            <div className="mt-4 hidden grid-cols-3 gap-3 pt-1 sm:grid">
               {SERVICE_MARKETING_ORDER.map((id) => {
                 const content = SERVICE_MARKETING_CONTENT[id]
                 const isActive = activeService === id
@@ -124,7 +169,7 @@ export function LandingServicesSection() {
               })}
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3">
+            <div className="mt-4 hidden grid-cols-3 gap-3 sm:grid">
               {SERVICE_MARKETING_ORDER.map((id) => (
                 <div key={id} className="flex justify-center">
                   <Link

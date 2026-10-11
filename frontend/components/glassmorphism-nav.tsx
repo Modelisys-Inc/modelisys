@@ -136,6 +136,15 @@ export function GlassmorphismNav() {
     return () => clearTimeout(timer)
   }, [])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [isOpen])
+
   return (
     <>
       <nav
@@ -148,7 +157,7 @@ export function GlassmorphismNav() {
       >
         <div className="relative z-[60] w-full">
           <div
-            className={`backdrop-blur-md border-b border-white/10 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
+            className={`backdrop-blur-md border-b border-white/10 px-5 sm:px-10 lg:px-16 xl:px-20 py-2.5 md:py-4 transition-all duration-300 ${
               scrolled ? "bg-[#2A2F3A]/92 shadow-lg" : "bg-[#2A2F3A]/78 shadow-md"
             }`}
           >
@@ -194,13 +203,6 @@ export function GlassmorphismNav() {
 
               <div className="hidden md:flex items-center gap-3">
                 <Link
-                  href="/login"
-                  className="px-5 py-2.5 rounded-md font-medium transition-colors duration-200 border border-white/10 bg-white/[0.04] text-[#E6D6C3] hover:bg-white/[0.07]"
-                >
-                  Mon Portail
-                </Link>
-
-                <Link
                   href="/#demo"
                   onClick={(e) => goToLandingSection(e, "/#demo")}
                   className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
@@ -211,8 +213,11 @@ export function GlassmorphismNav() {
               </div>
 
               <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className="md:hidden hover:scale-110 transition-transform duration-200 cursor-pointer text-white"
+                aria-expanded={isOpen}
+                aria-label={isOpen ? "Fermer le menu" : "Ouvrir le menu"}
+                className="md:hidden flex h-11 w-11 items-center justify-center text-white"
               >
                 <div className="relative w-6 h-6">
                   <Menu
@@ -243,7 +248,7 @@ export function GlassmorphismNav() {
           )}
 
           <div
-            className={`relative z-50 mt-0 w-full px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
+            className={`relative z-50 mt-0 w-full px-5 sm:px-10 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
               isOpen ? "translate-y-0 scale-100 opacity-100" : "hidden"
             }`}
             aria-hidden={!isOpen}

@@ -11,11 +11,6 @@ const MARKETING_PATHS = [
   "/services/accompagnement-financier",
   "/services/licences",
   "/services/developpement-sur-mesure",
-  "/tarification",
-  "/cabinets-comptables",
-  "/partenaires-financiers",
-  "/partenaires-institutionnels",
-  "/partenaires-capital",
   "/contact",
   "/blog",
   "/blog/importance-reporting-financier",
@@ -25,7 +20,6 @@ const MARKETING_PATHS = [
   "/blog/mapping-comptable-codes-de-liaison",
   "/blog/ia-technologie-pilotage-entreprise",
   "/privacy",
-  "/clause-de-non-responsabilite",
 ]
 
 export default function sitemap(): MetadataRoute.Sitemap {

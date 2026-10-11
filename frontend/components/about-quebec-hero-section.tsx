@@ -126,7 +126,7 @@ export function AboutQuebecHeroSection() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
-        <div className="grid min-h-[min(78vh,44rem)] grid-cols-1 items-center gap-14 py-20 sm:gap-16 sm:py-24 lg:grid-cols-2 lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
+        <div className="grid grid-cols-1 items-start gap-12 py-16 sm:gap-16 sm:py-24 lg:min-h-[min(78vh,44rem)] lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
           <div
             className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
               visible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
@@ -168,7 +168,7 @@ export function AboutQuebecHeroSection() {
                 href="#equipe"
                 className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
-                L&apos;ÉQUIPE
+                LE FONDATEUR
                 <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
               </a>
             </div>

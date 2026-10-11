@@ -1,1 +1,0 @@
-- [su_headers fixture convention](project_su-headers-fixture.md) — global standard-link-codes writes need su_headers (superadmin); other endpoints use auth_headers

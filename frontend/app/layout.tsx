@@ -1,4 +1,4 @@
-// This app is fully client-side (auth-gated SPA); disable static prerendering globally.
+// Marketing site: pages opt into static where useful; public layout indexes itself.
 export const dynamic = "force-dynamic"
 
 import type React from "react"
@@ -17,23 +17,21 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   // No template: existing pages already include "| Modelisys" /
   // "| Blog Modelisys" in their title. Adding a template would double up.
-  title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
+  title: "Modelisys — Gestion et Création de valeur pour les PME",
   description:
-    "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
+    "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
   applicationName: "Modelisys",
   authors: [{ name: "Modelisys" }],
   creator: "Modelisys",
   publisher: "Modelisys",
   keywords: [
-    "modélisation financière",
-    "états financiers",
-    "reporting financier",
-    "cabinet comptable",
+    "accompagnement financier",
+    "création de valeur",
     "PME",
     "valorisation",
     "projections financières",
-    "budget",
-    "tableau de bord financier",
+    "cabinet de consultation",
+    "gestion financière",
   ],
   alternates: {
     canonical: "/",
@@ -46,15 +44,15 @@ export const metadata: Metadata = {
     locale: "fr_CA",
     url: "/",
     siteName: "Modelisys",
-    title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
+    title: "Modelisys — Gestion et Création de valeur pour les PME",
     description:
-      "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
+      "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
+    title: "Modelisys — Gestion et Création de valeur pour les PME",
     description:
-      "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
+      "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
   },
   // Default: noindex everything. The (public) layout and the landing page
   // override to allow indexing on marketing/legal pages.
@@ -75,7 +73,7 @@ const organizationJsonLd = {
   url: SITE_URL,
   logo: `${SITE_URL}/images/modelisys-logo-noir.svg`,
   description:
-    "Modelisys est une plateforme de modélisation financière pour PME et cabinets comptables : états financiers, projections, valorisation et reporting consolidé.",
+    "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
   areaServed: "CA",
   knowsLanguage: ["fr-CA", "en-CA"],
 }

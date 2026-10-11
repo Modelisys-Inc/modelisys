@@ -108,7 +108,7 @@ export function AboutOurStorySection() {
       id="histoire"
       className="scroll-mt-24 relative z-10 border-t border-slate-200/80 bg-transparent py-20 sm:py-28"
     >
-      <div className="relative mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
+      <div className="relative mx-auto max-w-[1920px]">
         <div
           className={`mx-auto mb-12 max-w-3xl text-center transition-all duration-1000 sm:mb-16 lg:mx-0 lg:max-w-2xl lg:text-left ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
@@ -130,17 +130,20 @@ export function AboutOurStorySection() {
           <p className="mb-3 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 lg:text-left">
             Parcours du récit
           </p>
-          <nav className="grid grid-cols-4 gap-x-1 gap-y-3 sm:grid-cols-8 sm:gap-x-2" aria-label="Sections du récit">
+          <nav
+            className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:grid sm:grid-cols-8 sm:gap-x-2 sm:overflow-visible sm:px-0"
+            aria-label="Sections du récit"
+          >
             {STORY_STEPS.map((item) => (
               <a
                 key={item.id}
                 href={`#${item.id}`}
-                className="group flex flex-col items-center gap-2 py-1 text-center text-slate-600 transition hover:text-[#2A2F3A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/40"
+                className="group flex min-h-11 min-w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-center text-slate-600 transition hover:text-[#2A2F3A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/40 sm:min-h-0 sm:min-w-0 sm:px-0"
               >
-                <span className="font-mono text-[11px] font-semibold tabular-nums text-[#E0742D] transition group-hover:text-[#c45f1f] sm:text-xs">
+                <span className="font-mono text-xs font-semibold tabular-nums text-[#E0742D] transition group-hover:text-[#c45f1f]">
                   {String(item.step).padStart(2, "0")}
                 </span>
-                <span className="line-clamp-2 text-[9px] font-medium leading-tight text-slate-500 group-hover:text-slate-700 sm:text-[10px] lg:text-[11px]">
+                <span className="line-clamp-2 text-[11px] font-medium leading-tight text-slate-500 group-hover:text-slate-700">
                   {item.roadmap}
                 </span>
               </a>
@@ -163,7 +166,7 @@ export function AboutOurStorySection() {
               <motion.div {...contentMotion} className="space-y-5">
                 {[
                   "Modelisys n'a pas été imaginé dans un bureau de startup. Il a été conçu après des années passées assis de l'autre côté de la table — avec des entrepreneurs qui ne savaient pas exactement où en était leur entreprise, et des CPA qui auraient voulu pouvoir mieux les aider.",
-                  "Avant de fonder Modelisys, nos fondateurs ont travaillé auprès des PME — en entreprise, en cabinet (notamment en services-conseils), en évaluation, en contrôle financier et en certification. Ces volets complémentaires du même métier ont confirmé un même écart : l'absence d'une base commune entre les professionnels et leurs clients pour travailler sur les mêmes données, au même moment.",
+                  "Avant de fonder Modelisys, Tristan Bellerose a travaillé auprès des PME — en entreprise, au sein d'un groupe immobilier, puis en cabinet comptable, notamment en services-conseils et en évaluation d'entreprises. Ces volets du même métier ont confirmé un même écart : l'absence d'une base commune entre les professionnels et leurs clients pour travailler sur les mêmes données, au même moment.",
                   "Les associés rencontraient les dirigeants, posaient des questions et sollicitaient des documents, sans toujours pouvoir situer en cours d'année où en était réellement l'entreprise. Les PME, de leur côté, n'avaient souvent aucun outil pour relier leurs décisions à ce qui crée ou détruit de la valeur, ni pour structurer et optimiser leur gestion financière au-delà de rapports éclatés. Les échanges restaient réactifs : pas d'environnement partagé, pas de chiffres alignés en temps réel, pas de lecture commune — seulement des allers-retours alors que tout le monde aurait eu besoin du même socle pour décider.",
                 ].map((text, i) => (
                   <p key={i} className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">

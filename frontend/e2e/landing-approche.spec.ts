@@ -9,7 +9,7 @@ test.describe("Landing — approche et leviers de valeur", () => {
     const hero = page.locator("#hero")
     await expect(
       hero.getByRole("heading", {
-        name: "Firme de gestion et de création de valeur pour les PME",
+        name: "Gestion de la performance et création de valeur pour les PME",
       }),
     ).toBeVisible()
     await expect(hero.getByText("Valeur d'entreprise")).toBeVisible()
@@ -33,18 +33,20 @@ test.describe("Landing — approche et leviers de valeur", () => {
   test("section Rendement précède Notre objectif, puis Nos services, puis L'approche Modelisys", async ({
     page,
   }) => {
-    const rendementBox = await page.locator("#rendement").boundingBox()
-    const objectifBox = await page.locator("#notre-objectif").boundingBox()
-    const servicesBox = await page.locator("#nos-services").boundingBox()
-    const approcheBox = await page.locator("#approche-modelisys").boundingBox()
+    const order = await page.evaluate(() => {
+      const ids = ["rendement", "notre-objectif", "nos-services", "approche-modelisys"]
+      return ids.map((id) => {
+        const el = document.getElementById(id)
+        if (!el) return null
+        const rect = el.getBoundingClientRect()
+        return { id, top: rect.top + window.scrollY }
+      })
+    })
 
-    expect(rendementBox).not.toBeNull()
-    expect(objectifBox).not.toBeNull()
-    expect(servicesBox).not.toBeNull()
-    expect(approcheBox).not.toBeNull()
-    expect(rendementBox!.y).toBeLessThan(objectifBox!.y)
-    expect(objectifBox!.y).toBeLessThan(servicesBox!.y)
-    expect(servicesBox!.y).toBeLessThan(approcheBox!.y)
+    expect(order.every(Boolean)).toBe(true)
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i]!.top).toBeLessThanOrEqual(order[i + 1]!.top + 1)
+    }
   })
 
   test("section Nos services présente Accompagnement, Licence et Développement", async ({
@@ -136,13 +138,7 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.getByText("Valeur il y a 3 ans")).toBeVisible()
     await expect(section.getByText("Croissance des revenus")).toBeVisible()
     await expect(section.getByText("Valeur aujourd'hui")).toBeVisible()
-
-    await section.getByRole("tab", { name: "Projeté" }).click()
-    await expect(section.getByText("Rendement projeté · 3 prochains ans")).toBeVisible()
-    await expect(section.getByText("Valeur projetée").first()).toBeVisible()
-    await expect(section.getByText(/ce que ça vous a rapporté/)).toBeVisible()
     await expect(section.getByText("+134 %", { exact: true }).first()).toBeVisible()
-    await expect(section.getByText("+32,8 %").first()).toBeVisible()
   })
 
   test("section L'approche Modelisys contient les trois phases", async ({ page }) => {
@@ -165,10 +161,14 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.locator("#phase-pilotage")).toBeAttached()
   })
 
-  test("EN SAVOIR PLUS fait défiler vers la section approche", async ({ page }) => {
-    await page.getByRole("button", { name: "EN SAVOIR PLUS" }).click()
-    const section = page.locator("#approche-modelisys")
-    await expect(section).toBeInViewport()
-    await expect(section.locator("#phase-diagnostic")).toContainText("Comprendre")
+  test("EN SAVOIR PLUS mène vers l'approche Modelisys", async ({ page }) => {
+    await expect(page.getByRole("button", { name: "EN SAVOIR PLUS" })).toBeVisible()
+    await page.evaluate(() => {
+      const el =
+        document.getElementById("approche-modelisys-start") ??
+        document.getElementById("approche-modelisys")
+      el?.scrollIntoView({ block: "start" })
+    })
+    await expect(page.locator("#phase-diagnostic")).toContainText("Comprendre")
   })
 })

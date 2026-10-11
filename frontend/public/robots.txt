@@ -1,8 +1,5 @@
-# Modelisys — financial modeling SaaS.
-# Public marketing pages (/, /login, /blog, /privacy, /contact, the
-# /cabinets-* and /partenaires-* pages) are open to all crawlers,
-# including AI answer engines like Claude (ClaudeBot) and ChatGPT
-# (GPTBot, ChatGPT-User). The authenticated application is blocked.
+# Modelisys — site vitrine.
+# Pages marketing indexables. Anciennes routes Portail / pages retirées bloquées.
 
 User-agent: *
 Disallow: /analysis
@@ -22,5 +19,11 @@ Disallow: /api/
 Disallow: /login
 Disallow: /forgot-password
 Disallow: /reset-password
+Disallow: /tarification
+Disallow: /cabinets-comptables
+Disallow: /partenaires-financiers
+Disallow: /partenaires-institutionnels
+Disallow: /partenaires-capital
+Disallow: /clause-de-non-responsabilite
 
 Sitemap: https://modelisys.com/sitemap.xml

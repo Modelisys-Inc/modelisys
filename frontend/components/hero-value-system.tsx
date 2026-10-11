@@ -74,7 +74,7 @@ export function HeroValueSystem({ className = "" }: Props) {
       {/* Quiet orbital lines — relation visuelle des 5 leviers */}
       <svg
         viewBox="0 0 420 420"
-        className="pointer-events-none absolute left-1/2 top-[42%] h-[min(100%,28rem)] w-[min(100%,28rem)] -translate-x-1/2 -translate-y-1/2 opacity-80"
+        className="pointer-events-none absolute left-1/2 top-[42%] hidden h-[min(100%,28rem)] w-[min(100%,28rem)] -translate-x-1/2 -translate-y-1/2 opacity-80 md:block"
         aria-hidden
       >
         <defs>
