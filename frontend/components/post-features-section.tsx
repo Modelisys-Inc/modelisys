@@ -199,10 +199,9 @@ export function PostFeaturesSection() {
                     <blockquote className="max-w-[22rem] text-[1.0625rem] font-normal leading-[1.55] text-[#E6D6C3]">
                       <div className="mx-auto h-px w-10 bg-gradient-to-r from-transparent via-[#E0742D]/50 to-transparent" aria-hidden />
                       <span className="mt-4 block italic text-[#C9B8A5]">
-                        « Modelisys transforme l&apos;analyse financière en un véritable levier d&apos;efficacité,
-                      </span>
-                      <span className="mt-2 block italic text-[#C9B8A5]">
-                        en mettant en lumière les dynamiques qui façonnent la valeur d&apos;une entreprise. »
+                        « Modelisys accompagne les propriétaires de PME dans l&apos;optimisation de leur performance,
+                        de leur rendement et de la valeur de leur entreprise grâce à une approche intégrée de gestion
+                        de la performance et de création de valeur. »
                       </span>
                     </blockquote>
                     <div className="w-full max-w-[22rem] border-t border-white/10 pt-5">
@@ -226,8 +225,9 @@ export function PostFeaturesSection() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <blockquote className="text-sm italic leading-relaxed text-[#C9B8A5]/95 sm:text-[0.9375rem] sm:leading-[1.6] lg:text-base lg:leading-[1.65]">
-                        « Modelisys transforme l&apos;analyse financière en un véritable levier d&apos;efficacité, en mettant
-                        en lumière les dynamiques qui façonnent la valeur d&apos;une entreprise. »
+                        « Modelisys accompagne les propriétaires de PME dans l&apos;optimisation de leur performance, de leur
+                        rendement et de la valeur de leur entreprise grâce à une approche intégrée de gestion de la
+                        performance et de création de valeur. »
                       </blockquote>
                       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                         <div className="min-w-0">

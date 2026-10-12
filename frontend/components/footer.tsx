@@ -176,8 +176,9 @@ export function Footer() {
 
             <div className="max-w-md space-y-5">
               <p className="border-l-2 border-l-[#E0742D]/45 pl-4 text-sm italic leading-relaxed text-[#C9B8A5]/80">
-                « Modelisys transforme l&apos;analyse financière en un véritable levier d&apos;efficacité, en mettant en
-                lumière les dynamiques qui façonnent la valeur d&apos;une entreprise. »
+                « Modelisys accompagne les propriétaires de PME dans l&apos;optimisation de leur performance, de
+                leur rendement et de la valeur de leur entreprise grâce à une approche intégrée de gestion de la
+                performance et de création de valeur. »
               </p>
               <div>
                 <p className="text-sm font-semibold text-[#E6D6C3]">Tristan Bellerose, CPA, CBV</p>
