@@ -22,7 +22,6 @@ import {
   type ReturnWaterfallView,
 } from "@/lib/landing-business-return"
 
-const ROW_HEIGHT = 32
 const BAR_HEIGHT = 14
 const RIBBON_HEIGHT = 20
 const TOTAL_RIBBON_HEIGHT = 22
@@ -201,7 +200,7 @@ function stepLabel(step: ReturnWaterfallStep): ReactNode {
             <Icon className="h-3 w-3 text-[#C9B8A5]/65" strokeWidth={2} />
           </span>
         ) : null}
-        <span className="min-w-0 truncate text-[11px] text-[#C9B8A5]/88 sm:text-xs">{step.label}</span>
+        <span className="min-w-0 text-[13px] leading-snug text-[#C9B8A5]/88 sm:truncate sm:text-xs">{step.label}</span>
       </span>
     )
   }
@@ -237,10 +236,10 @@ function KpiStrip({ view }: { view: ReturnWaterfallView }) {
         ]
 
   return (
-    <div className="grid grid-cols-3 gap-6 border-y border-white/[0.08] py-4 sm:gap-8 sm:py-5">
+    <div className="grid grid-cols-3 gap-3 border-y border-white/[0.08] py-4 sm:gap-8 sm:py-5">
       {items.map((item) => (
-        <div key={item.label}>
-          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#C9B8A5]/55">
+        <div key={item.label} className="min-w-0">
+          <p className="text-[9px] font-medium uppercase leading-tight tracking-[0.08em] text-[#C9B8A5]/55 sm:text-[10px] sm:tracking-[0.16em]">
             {item.label}
           </p>
           <p
@@ -409,7 +408,7 @@ export function BusinessReturnWaterfall() {
           >
             {/* Grille de fond */}
             <div
-              className="pointer-events-none absolute inset-0 left-[36%] right-[8.75rem] sm:left-[38%] sm:right-[10rem]"
+              className="pointer-events-none absolute inset-0 left-[38%] right-[10rem] hidden sm:block"
               style={{
                 backgroundImage:
                   "linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px)",
@@ -438,19 +437,21 @@ export function BusinessReturnWaterfall() {
                 return (
                   <div
                     key={step.id}
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)_8.5rem] items-center gap-x-2 sm:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_10rem] sm:gap-x-3"
-                    style={{ height: ROW_HEIGHT, ...rowStyle }}
+                    className="grid grid-cols-1 gap-1.5 border-b border-white/[0.05] py-2.5 last:border-b-0 sm:h-8 sm:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_10rem] sm:items-center sm:gap-x-3 sm:border-0 sm:py-0"
+                    style={rowStyle}
                   >
-                    <div className="flex h-full min-w-0 items-center">{stepLabel(step)}</div>
+                    <div className="flex min-w-0 items-center sm:h-full">{stepLabel(step)}</div>
 
-                    <div className="flex h-full min-w-0 items-center">
-                      <BarSvg step={step} startPct={startPct} widthPct={widthPct} />
-                    </div>
+                    <div className="flex min-w-0 items-center gap-3 sm:contents">
+                      <div className="flex min-w-0 flex-1 items-center sm:h-full">
+                        <BarSvg step={step} startPct={startPct} widthPct={widthPct} />
+                      </div>
 
-                    <div
-                      className={`flex h-full items-center justify-end gap-1.5 whitespace-nowrap text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueColor}`}
-                    >
-                      {stepValue(step)}
+                      <div
+                        className={`flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums sm:h-full sm:text-[11px] ${valueColor}`}
+                      >
+                        {stepValue(step)}
+                      </div>
                     </div>
                   </div>
                 )

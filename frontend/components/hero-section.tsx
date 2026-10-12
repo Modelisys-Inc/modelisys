@@ -51,18 +51,18 @@ export function HeroSection() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
-        <div className="grid min-h-[min(88vh,52rem)] grid-cols-1 items-center gap-14 py-20 sm:gap-16 sm:py-24 lg:grid-cols-2 lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
+        <div className="grid grid-cols-1 items-start gap-12 py-16 sm:gap-16 sm:py-24 lg:min-h-[min(88vh,52rem)] lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
           <div
             className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
               isVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
             }`}
           >
             <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
-              Pilotage &amp; évaluation
+              Performance &amp; Évaluation
             </p>
 
             <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
-              Firme de gestion et de création de valeur pour les PME
+              Gestion de la performance et création de valeur pour les PME
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
@@ -71,11 +71,11 @@ export function HeroSection() {
               décisions et augmenter la valeur de leur entreprise.
             </p>
 
-            <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
+            <div className="mt-10 flex flex-col items-stretch gap-3 sm:mt-12 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <button
                 type="button"
                 onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
-                className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
+                className="group inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60 sm:w-auto"
               >
                 PRENDRE RENDEZ-VOUS
                 <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />

@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og"
 
 export const runtime = "edge"
-export const alt = "Modelisys — Pilotage financier pour PME et cabinets comptables"
+export const alt = "Modelisys — Gestion et Création de valeur pour les PME"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -55,7 +55,7 @@ export default function OpenGraphImage() {
               maxWidth: "960px",
             }}
           >
-            Pilotage financier pour PME et cabinets comptables
+            Gestion et Création de valeur pour les PME
           </div>
           <div
             style={{
@@ -65,7 +65,7 @@ export default function OpenGraphImage() {
               lineHeight: 1.35,
             }}
           >
-            États financiers, projections, valorisation et reporting consolidé.
+            Performance, trésorerie, décisions et création de valeur.
           </div>
         </div>
 
@@ -88,7 +88,7 @@ export default function OpenGraphImage() {
               fontSize: "18px",
             }}
           >
-            Plateforme SaaS
+            Firme de consultation
           </div>
         </div>
       </div>

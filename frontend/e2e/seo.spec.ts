@@ -103,12 +103,9 @@ test.describe("SEO + launch readiness", () => {
     expect(found, "BlogPosting JSON-LD not found on page").toBe(true)
   })
 
-  test("/login is marked noindex", async ({ page }) => {
+  test("/login redirects to home (portal removed)", async ({ page }) => {
     await page.goto("/login")
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
-      "content",
-      /noindex/,
-    )
+    await expect(page).toHaveURL("/")
   })
 
   test("v0.app generator marker is gone", async ({ page }) => {
