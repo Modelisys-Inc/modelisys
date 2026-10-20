@@ -21,11 +21,10 @@ import {
 import { cn } from "@/lib/utils"
 
 const SUBJECT_OPTIONS = [
+  "Accompagnement financier fractionnaire",
   "Prendre rendez-vous",
-  "Support",
-  "Fonctionnalités",
   "Demande de partenariat",
-  "Autres",
+  "Autre",
 ] as const
 
 const subjectSelectClassName =
