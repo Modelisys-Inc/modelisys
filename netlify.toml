@@ -1,0 +1,8 @@
+# L'application Next.js vit dans frontend/ — sans ce base, Netlify publie la racine du dépôt (aucune page).
+[build]
+  base = "frontend"
+  command = "pnpm install --no-frozen-lockfile && pnpm build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
