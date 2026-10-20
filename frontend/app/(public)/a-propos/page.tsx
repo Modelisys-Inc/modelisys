@@ -9,7 +9,7 @@ import { ArrowUpRight } from "lucide-react"
 export const metadata: Metadata = {
   title: "À propos | Modelisys",
   description:
-    "Modelisys — gestion de la performance et création de valeur pour les PME. Notre histoire, notre approche (comprendre, planifier, exécuter) et notre équipe.",
+    "Modelisys, accompagnement financier fractionnaire pour les propriétaires de PME. Notre vision, notre histoire et notre approche : comprendre, planifier, exécuter.",
 }
 
 export default function AProposPage() {

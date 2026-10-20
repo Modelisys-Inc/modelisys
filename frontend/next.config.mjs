@@ -28,17 +28,17 @@ const nextConfig = {
     return [
       {
         source: "/etudes-de-cas",
-        destination: "/services",
+        destination: "/",
         permanent: true,
       },
       {
-        source: "/services/mandats-ponctuels",
-        destination: "/services",
+        source: "/services",
+        destination: "/",
         permanent: true,
       },
       {
-        source: "/services/services-conseils",
-        destination: "/services",
+        source: "/services/:slug",
+        destination: "/",
         permanent: true,
       },
       {
