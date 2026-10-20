@@ -154,42 +154,34 @@ test.describe("Page Services", () => {
     await expect(page.getByRole("link", { name: "Services", exact: true })).toHaveCount(0)
   })
 
-  test("le menu Nos services mène à /services", async ({ page }) => {
-    test.setTimeout(120000)
-    await page.goto("/", { waitUntil: "domcontentloaded", timeout: 90000 })
-    await page.locator("nav").locator("a[href='/services']").first().click()
-    await expect(page).toHaveURL(/\/services/, { timeout: 15000 })
-  })
-
-  test("le menu Nos services propose les trois offres", async ({ page }) => {
+  test("le menu ne propose plus Nos services", async ({ page }) => {
     test.setTimeout(120000)
     await page.goto("/", { waitUntil: "domcontentloaded", timeout: 90000 })
     const nav = page.locator("nav").first()
-    await nav.getByRole("link", { name: "Nos services", exact: true }).hover()
-    await expect(nav.getByRole("link", { name: "Mandats ponctuels" })).toHaveCount(0)
-    await expect(nav.getByRole("link", { name: "Accompagnement financier" })).toBeVisible()
-    await expect(nav.getByRole("link", { name: "Licence Modelisys", exact: true })).toBeVisible()
-    await expect(nav.getByRole("link", { name: "Développement sur mesure" })).toBeVisible()
-    await nav.getByRole("link", { name: "Accompagnement financier" }).click()
-    await expect(page).toHaveURL(/\/services\/accompagnement-financier/, { timeout: 15000 })
+    await expect(nav.getByRole("link", { name: "Nos services", exact: true })).toHaveCount(0)
+    await expect(nav.getByRole("link", { name: "Tenue de livres" })).toHaveCount(0)
+    await expect(nav.getByRole("link", { name: "Notre approche", exact: true })).toBeVisible()
   })
 
-  test("le footer liste les trois offres sous Nos services", async ({ page }) => {
+  test("le footer propose l'accompagnement financier fractionnaire", async ({ page }) => {
     test.setTimeout(120000)
     await page.goto("/", { waitUntil: "domcontentloaded", timeout: 90000 })
     const footer = page.locator("footer")
-    await expect(footer.getByRole("heading", { name: "Nos services" })).toBeVisible({
+    await expect(footer.getByRole("heading", { name: "Notre service" })).toBeVisible({
       timeout: 30000,
     })
+    await expect(footer.getByRole("heading", { name: "Nos services" })).toHaveCount(0)
     await expect(footer.getByRole("heading", { name: "Parcours" })).toHaveCount(0)
     await expect(footer.getByRole("link", { name: "Nos services", exact: true })).toHaveCount(0)
-    await expect(footer.getByRole("link", { name: "Accompagnement financier" })).toBeVisible()
-    await expect(footer.getByRole("link", { name: "Licence Modelisys", exact: true })).toBeVisible()
-    await expect(footer.getByRole("link", { name: "Développement sur mesure" })).toBeVisible()
-    await expect(footer.getByRole("link", { name: "Accompagnement financier" })).toHaveAttribute(
-      "href",
-      "/services/accompagnement-financier",
-    )
+    await expect(footer.getByRole("link", { name: "Licence Modelisys" })).toHaveCount(0)
+    await expect(footer.getByRole("link", { name: "Développement sur mesure" })).toHaveCount(0)
+    await expect(footer.getByRole("link", { name: "Tenue de livres" })).toHaveCount(0)
+    await expect(
+      footer.getByRole("link", { name: "Accompagnement financier fractionnaire" }),
+    ).toBeVisible()
+    await expect(
+      footer.getByRole("link", { name: "Accompagnement financier fractionnaire" }),
+    ).toHaveAttribute("href", "/#approche-modelisys")
     await expect(footer.getByRole("heading", { name: "Entreprise" })).toBeVisible()
     await expect(footer.getByRole("link", { name: "Notre objectif" })).toBeVisible()
     await expect(footer.getByRole("link", { name: "Notre objectif" })).toHaveAttribute(

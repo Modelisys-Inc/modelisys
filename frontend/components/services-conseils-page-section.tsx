@@ -216,7 +216,7 @@ export function ServicesConseilsPageSection() {
           })}
         </div>
 
-        <ServicesOtherServicesSection currentId="accompagnement" />
+        <ServicesOtherServicesSection />
       </div>
     </div>
   )

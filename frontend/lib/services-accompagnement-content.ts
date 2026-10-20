@@ -1,8 +1,9 @@
 /**
  * Contenu marketing — page Accompagnement financier.
- * Cinq leviers reliés : les livres alimentent le contrôle, le contrôle rend
- * la performance lisible, la performance éclaire les projections, et les
- * projections portent la valorisation — pour le rendement et la valeur.
+ * Les volets de l'accompagnement : les livres alimentent le contrôle, le
+ * contrôle rend la performance lisible, la performance éclaire les projections,
+ * les projections portent la valorisation, et la modélisation Excel traduit
+ * une décision — pour le rendement et la valeur.
  */
 
 export type ServicesAccompagnementOffering = {
@@ -32,7 +33,7 @@ export const SERVICES_ACCOMPAGNEMENT_PAGE = {
   intro:
     "Un accompagnement tourné vers l’optimisation du rendement et l’augmentation de la valeur de l’entreprise — sans recruter un directeur financier à temps plein. Les livres alimentent le contrôle, le contrôle rend la performance lisible, la performance éclaire les projections, et les projections portent la valorisation.",
   allowsLead:
-    "Cinq leviers, une même lecture. Chaque pièce prépare la suivante — et la valorisation revient informer ce qu’il faut suivre le mois d’après, pour le rendement et la valeur.",
+    "Chaque volet peut se prendre seul. Les livres alimentent le contrôle, la performance éclaire les projections, et la modélisation Excel traduit une décision — pour le rendement et la valeur.",
 } as const
 
 export const SERVICES_ACCOMPAGNEMENT_OFFERINGS: readonly ServicesAccompagnementOffering[] = [
@@ -104,6 +105,20 @@ export const SERVICES_ACCOMPAGNEMENT_OFFERINGS: readonly ServicesAccompagnementO
       "Projection de la valeur",
       "Rendement cible",
       "Fourchette de valeur pour le suivi interne",
+    ],
+  },
+  {
+    id: "modelisation",
+    number: "06",
+    title: "Modélisation financière",
+    lead: "Développer des modèles Excel adaptés à votre réalité.",
+    body: "Quand un suivi a besoin d’un modèle — tableau de bord, scénario, coût ou simulation — l’accompagnement développe un Excel que votre équipe peut faire vivre avec le mois.",
+    feeds: "Prolonge les autres volets : le modèle reprend les chiffres validés et les traduit en impact.",
+    examples: [
+      "Modèles Excel sur mesure",
+      "Scénarios et simulations",
+      "Tableaux de bord de gestion",
+      "Impact d’une décision sur le cash, le résultat et la valeur",
     ],
   },
 ]

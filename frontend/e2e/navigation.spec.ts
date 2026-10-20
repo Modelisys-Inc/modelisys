@@ -21,6 +21,40 @@ test.describe("Navigation & Routing", () => {
     await expect(nav.getByRole("link", { name: "Mon Portail" })).toHaveCount(0)
   })
 
+  test("le menu Ressources mène aux quiz", async ({ page }) => {
+    await page.goto("/")
+    const nav = page.locator("nav").first()
+    await nav.getByRole("link", { name: "Ressources", exact: true }).hover()
+    await expect(nav.getByRole("link", { name: "Blog", exact: true })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Quiz", exact: true })).toBeVisible()
+
+    await page.goto("/ressources")
+    await expect(
+      page.getByRole("heading", { name: /Tester vos connaissances en finance corporative/i }),
+    ).toBeVisible()
+    await page
+      .locator("article")
+      .filter({ has: page.getByRole("heading", { name: "Lecture de la valeur" }) })
+      .getByRole("link", { name: "COMMENCER" })
+      .click()
+    await expect(page).toHaveURL(/\/ressources\/lecture-de-la-valeur$/)
+
+    const answers = [
+      "Dans les décisions prises chaque mois",
+      "Oui : la croissance, le fonds de roulement et les investissements consomment de la trésorerie",
+      "Des stocks et des comptes clients qui grossissent plus vite que le financement des fournisseurs",
+      "Non : il faut voir la marge, la trésorerie et le risque qui accompagnent cet écart",
+      "Parce que les leviers se découvrent trop tard pour encore changer la trajectoire",
+    ]
+    for (const [index, answer] of answers.entries()) {
+      await page.getByRole("radio", { name: answer }).click()
+      const nextLabel = index === answers.length - 1 ? "VOIR MON SCORE" : "SUIVANT"
+      await page.getByRole("button", { name: nextLabel }).click()
+    }
+    await expect(page.getByTestId("quiz-score")).toHaveText("5 sur 5")
+    await expect(page.getByRole("heading", { name: "Lecture déjà nette" })).toBeVisible()
+  })
+
   test("à propos page is public and loads", async ({ page }) => {
     test.setTimeout(90_000)
     const res = await page.goto("/a-propos", {
@@ -31,7 +65,7 @@ test.describe("Navigation & Routing", () => {
     await expect(page).toHaveURL(/\/a-propos$/)
     await expect(page).toHaveTitle(/À propos/i)
     await expect(
-      page.getByRole("heading", { name: /Fondée et pratiquée au Québec/i }),
+      page.getByRole("heading", { name: /Notre vision/i }),
     ).toBeVisible()
     await expect(
       page.getByText(/améliorer la compréhension de la valeur auprès des propriétaires/i),

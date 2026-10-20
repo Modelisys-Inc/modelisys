@@ -1,0 +1,9 @@
+# L’application Next.js est dans frontend/. Sans ce répertoire de base,
+# Netlify publie la racine du dépôt et répond 404 sur toutes les adresses.
+[build]
+  base = "frontend"
+  command = "pnpm build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"

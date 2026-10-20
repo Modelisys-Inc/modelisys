@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react"
 import { LandingApprochePhaseBlock } from "@/components/landing-approche-phase-block"
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { APPROCHE_FAQ } from "@/lib/approche-faq"
+import {
   APPROCHE_PHASE_NAVIGATE_EVENT,
   APPROCHE_SCROLL_TARGET_ID,
   APPROCHE_SECTION_ID,
@@ -96,9 +103,20 @@ export function LandingApprocheSection() {
 
           <p className="mt-6 max-w-xl text-[15px] leading-[1.75] text-slate-600 sm:mt-7 sm:text-base">
             Voici comment nous procédons avec les dirigeants : comprendre ce qui impacte la valeur,
-            planifier les leviers, puis exécuter et ajuster — une méthode de firme, pas une simple
+            planifier les leviers, puis exécuter et ajuster — une méthode concrète, pas une simple
             suite d&apos;outils.
           </p>
+
+          <div className="mt-8 max-w-2xl border-l-2 border-[#E0742D] pl-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">
+              Accompagnement financier fractionnaire
+            </p>
+            <p className="mt-3 text-[15px] leading-relaxed text-[#2A2F3A] sm:text-base">
+              C’est le cadre dans lequel cette approche se vit. Modelisys est à vos côtés, au
+              rythme de votre entreprise, pour comprendre, planifier et exécuter — sans embauche à
+              temps plein.
+            </p>
+          </div>
 
           <nav
             className="mt-10 flex flex-wrap gap-x-1 gap-y-2 border-b border-[#2A2F3A]/10 pb-px"
@@ -138,7 +156,7 @@ export function LandingApprocheSection() {
           </nav>
         </div>
 
-        <div className="divide-y divide-[#2A2F3A]/10 pb-16 sm:pb-20 lg:pb-24 xl:pb-28">
+        <div className="divide-y divide-[#2A2F3A]/10">
           {APPROCHE_PHASE_ORDER.map((phaseId, index) => (
             <LandingApprochePhaseBlock
               key={phaseId}
@@ -148,7 +166,63 @@ export function LandingApprocheSection() {
             />
           ))}
         </div>
+
+        <ApprocheFaq />
       </div>
     </section>
+  )
+}
+
+function ApprocheFaq() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: APPROCHE_FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.answer,
+      },
+    })),
+  }
+
+  return (
+    <div
+      id="approche-faq"
+      className="scroll-mt-28 border-t border-[#2A2F3A]/10 pb-16 pt-14 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20 xl:pb-28"
+    >
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
+      <div className="grid gap-10 lg:grid-cols-12 lg:gap-14">
+        <div className="lg:col-span-4">
+          <p
+            id="approche-faq-heading"
+            className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#9A4A1A]"
+          >
+            Questions fréquentes
+          </p>
+          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-slate-600">
+            Ce que les dirigeants clarifient avant de démarrer l’accompagnement.
+          </p>
+        </div>
+        <Accordion
+          type="single"
+          collapsible
+          className="lg:col-span-8"
+          aria-labelledby="approche-faq-heading"
+        >
+          {APPROCHE_FAQ.map((item, index) => (
+            <AccordionItem key={item.question} value={`approche-faq-${index}`} className="border-[#2A2F3A]/10">
+              <AccordionTrigger className="py-5 text-left text-[15px] font-semibold leading-snug tracking-tight text-[#2A2F3A] hover:no-underline hover:text-[#9A4A1A] [&[data-state=open]]:text-[#9A4A1A]">
+                {item.question}
+              </AccordionTrigger>
+              <AccordionContent className="pb-5 text-[15px] leading-relaxed text-slate-600">
+                {item.answer}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
+    </div>
   )
 }
