@@ -18,8 +18,6 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",
-  outputFileTracingRoot: __dirname,
   typescript: {
     ignoreBuildErrors: true,
   },
