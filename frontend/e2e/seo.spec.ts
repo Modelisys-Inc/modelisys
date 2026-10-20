@@ -67,7 +67,7 @@ test.describe("SEO + launch readiness", () => {
     const h = res.headers()
     expect(h["strict-transport-security"]).toContain("max-age=")
     expect(h["x-content-type-options"]).toBe("nosniff")
-    expect(h["x-frame-options"]).toBe("DENY")
+    expect(h["x-frame-options"]).toBe("SAMEORIGIN")
     expect(h["referrer-policy"]).toBe("strict-origin-when-cross-origin")
     expect(h["permissions-policy"]).toContain("camera=()")
   })

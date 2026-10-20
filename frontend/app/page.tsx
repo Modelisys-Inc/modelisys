@@ -12,16 +12,35 @@ import { PostFeaturesSection } from "@/components/post-features-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
 import { EmailSubscriptionSection } from "@/components/email-subscription-section"
 import { Footer } from "@/components/footer"
+import {
+  LandingEmbedBreakout,
+  LandingMobileDesktopFrame,
+} from "@/components/landing-mobile-desktop-frame"
 
-export const metadata: Metadata = {
-  robots: { index: true, follow: true },
+type LandingSearchParams = Promise<{ embed?: string | string[] }>
+
+function isDesktopEmbed(embed: string | string[] | undefined) {
+  return embed === "desktop" || (Array.isArray(embed) && embed.includes("desktop"))
 }
 
-export default function LandingPage() {
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: LandingSearchParams
+}): Promise<Metadata> {
+  const { embed } = await searchParams
+  if (isDesktopEmbed(embed)) {
+    return { robots: { index: false, follow: false } }
+  }
+  return { robots: { index: true, follow: true } }
+}
+
+function LandingPageBody() {
   return (
     <div className="min-h-screen bg-slate-50 overflow-hidden">
       <main className="min-h-screen relative">
         <div className="relative z-10">
+          <LandingEmbedBreakout />
           <LandingHashScroll />
           <GlassmorphismNav />
           <HeroSection />
@@ -53,5 +72,31 @@ export default function LandingPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: LandingSearchParams
+}) {
+  const { embed } = await searchParams
+  if (isDesktopEmbed(embed)) return <LandingPageBody />
+
+  return (
+    <>
+      <div className="landing-frame">
+        <iframe id="landing-desktop-frame" title="Modelisys" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){if(!window.matchMedia("(max-width: 767px)").matches)return;var frame=document.getElementById("landing-desktop-frame");if(!frame||frame.getAttribute("src"))return;frame.setAttribute("src","/?embed=desktop"+window.location.hash);})();`,
+          }}
+        />
+      </div>
+      <LandingMobileDesktopFrame />
+      <div className="landing-direct">
+        <LandingPageBody />
+      </div>
+    </>
   )
 }

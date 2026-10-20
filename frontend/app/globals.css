@@ -418,6 +418,37 @@ input[type="password"]::-ms-clear {
   }
 }
 
+/* Accueil mobile : la composition ordinateur (1440 px) est réduite à la largeur de l'écran. */
+.landing-frame {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .landing-frame {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    overflow: hidden;
+    background: #222732;
+  }
+
+  .landing-frame iframe {
+    width: 1440px;
+    height: calc(100vh * 1440px / 100vw);
+    height: calc(100dvh * 1440px / 100dvw);
+    border: 0;
+    background: #222732;
+    transform: scale(calc(100vw / 1440px));
+    transform: scale(calc(100dvw / 1440px));
+    transform-origin: top left;
+  }
+
+  .landing-direct {
+    display: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .drivers-wow-border,
   .drivers-wow-shimmer,
