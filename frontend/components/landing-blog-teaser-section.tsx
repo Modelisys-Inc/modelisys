@@ -138,7 +138,7 @@ export function LandingBlogTeaserSection() {
               </div>
             </div>
 
-            <div className="mt-10 flex items-center gap-2 lg:mt-12">
+            <div className="mt-10 flex items-center gap-2 lg:mb-16 lg:mt-12">
               <button
                 type="button"
                 onClick={() => scrollByCard(-1)}
