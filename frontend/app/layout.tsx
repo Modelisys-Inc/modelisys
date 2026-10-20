@@ -17,21 +17,21 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   // No template: existing pages already include "| Modelisys" /
   // "| Blog Modelisys" in their title. Adding a template would double up.
-  title: "Modelisys — Gestion et Création de valeur pour les PME",
+  title: "Modelisys — Accompagnement financier fractionnaire",
   description:
-    "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
+    "Accompagnement financier fractionnaire pour les propriétaires de PME. Modelisys aide à mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
   applicationName: "Modelisys",
   authors: [{ name: "Modelisys" }],
   creator: "Modelisys",
   publisher: "Modelisys",
   keywords: [
-    "accompagnement financier",
+    "accompagnement financier fractionnaire",
     "création de valeur",
+    "valeur d'entreprise",
     "PME",
+    "dirigeants",
     "valorisation",
-    "projections financières",
-    "cabinet de consultation",
-    "gestion financière",
+    "lecture de la comptabilité",
   ],
   alternates: {
     canonical: "/",
@@ -44,15 +44,15 @@ export const metadata: Metadata = {
     locale: "fr_CA",
     url: "/",
     siteName: "Modelisys",
-    title: "Modelisys — Gestion et Création de valeur pour les PME",
+    title: "Modelisys — Accompagnement financier fractionnaire",
     description:
-      "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
+      "Accompagnement financier fractionnaire pour les propriétaires de PME. Mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Modelisys — Gestion et Création de valeur pour les PME",
+    title: "Modelisys — Accompagnement financier fractionnaire",
     description:
-      "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
+      "Accompagnement financier fractionnaire pour les propriétaires de PME. Mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
   },
   // Default: noindex everything. The (public) layout and the landing page
   // override to allow indexing on marketing/legal pages.
@@ -73,7 +73,7 @@ const organizationJsonLd = {
   url: SITE_URL,
   logo: `${SITE_URL}/images/modelisys-logo-noir.svg`,
   description:
-    "Modelisys accompagne les PME à comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs décisions et augmenter la valeur de leur entreprise.",
+    "Accompagnement financier fractionnaire pour les propriétaires de PME. Modelisys aide à mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
   areaServed: "CA",
   knowsLanguage: ["fr-CA", "en-CA"],
 }

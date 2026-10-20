@@ -16,6 +16,17 @@ test.describe("SEO + launch readiness", () => {
     expect(body).toContain("<?xml")
     expect(body).toContain("https://modelisys.com/")
     expect(body).toContain("/blog/importance-reporting-financier")
+    expect(body).not.toContain("/services")
+  })
+
+  test("les anciennes pages licence et développement redirigent vers l'accueil", async ({
+    request,
+  }) => {
+    for (const path of ["/services/licences", "/services/developpement-sur-mesure", "/services"]) {
+      const res = await request.get(path, { maxRedirects: 0 })
+      expect([301, 308]).toContain(res.status())
+      expect(res.headers().location).toBe("/")
+    }
   })
 
   test("/.well-known/security.txt is reachable", async ({ request }) => {

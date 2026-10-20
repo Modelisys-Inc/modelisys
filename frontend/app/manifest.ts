@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Modelisys",
     short_name: "Modelisys",
     description:
-      "Modelisys — Gestion et Création de valeur pour les PME.",
+      "Accompagnement financier fractionnaire pour les propriétaires de PME.",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",

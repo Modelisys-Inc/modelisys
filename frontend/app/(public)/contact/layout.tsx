@@ -8,12 +8,12 @@ export const revalidate = 0
 export const metadata: Metadata = {
   title: "Contact | Modelisys",
   description:
-    "Contactez Modelisys pour une démonstration, du support ou pour discuter d’un accompagnement.",
+    "Écrivez à Modelisys pour démarrer un accompagnement financier fractionnaire ou prendre rendez-vous.",
   alternates: { canonical: "/contact" },
   openGraph: {
     title: "Contact | Modelisys",
     description:
-      "Démonstrations, support et partenariats : écrivez à l’équipe Modelisys.",
+      "Accompagnement, rendez-vous et questions : écrivez à l’équipe Modelisys.",
     url: "/contact",
   },
 }
