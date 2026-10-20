@@ -7,9 +7,7 @@ const items = HERO_INSIGHT_MARQUEE_ITEMS
 
 export function HeroMarquee() {
   return (
-    <section className="relative isolate z-0 overflow-hidden bg-[#222732]">
-      <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
-      <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
+    <section className="relative isolate z-0 overflow-hidden border-y border-white/20 bg-[#222732]">
 
       <div className="relative">
         <div className="marquee-mask">
