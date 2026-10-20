@@ -130,7 +130,11 @@ export function ServicesAccompagnementPageSection() {
             </div>
             <div className="divide-y divide-[#2A2F3A]/10 lg:col-span-8">
               {SERVICES_ACCOMPAGNEMENT_OFFERINGS.map((item) => (
-                <div key={item.id} id={`accompagnement-${item.id}`} className="py-8 first:pt-0 last:pb-0">
+                <div
+                  key={item.id}
+                  id={`accompagnement-${item.id}`}
+                  className="scroll-mt-28 py-8 first:pt-0 last:pb-0"
+                >
                   <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#9A4A1A]">
                     <span className="font-mono tabular-nums">{item.number}</span>
                     <span className="mx-2 text-[#2A2F3A]/25" aria-hidden>
@@ -238,7 +242,7 @@ export function ServicesAccompagnementPageSection() {
         <ServicesFaqSection items={getServicesFaq("accompagnement")} />
 
         <div className="mt-16 sm:mt-20">
-          <ServicesOtherServicesSection currentId="accompagnement" />
+          <ServicesOtherServicesSection />
         </div>
       </div>
     </div>

@@ -57,8 +57,8 @@ export function HeroSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
             }`}
           >
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
-              Performance &amp; Évaluation
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#E0742D]">
+              Accompagnement financier fractionnaire
             </p>
 
             <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">

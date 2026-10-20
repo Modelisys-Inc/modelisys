@@ -7,7 +7,6 @@ import { ArrowRight, FacebookIcon, InstagramIcon, LinkedinIcon } from "lucide-re
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
 import { heroFeatureFooterLinks } from "@/lib/hero-features"
-import { SERVICES_PAGE_PILLARS, getServicePagePath } from "@/lib/services-page-content"
 
 interface FooterLink {
   title: string
@@ -27,15 +26,14 @@ interface FooterSection {
 
 const footerLinks: FooterSection[] = [
   {
-    label: "Nos services",
-    links: SERVICES_PAGE_PILLARS.map((pillar) => ({
-      title: pillar.label,
-      href: getServicePagePath(pillar.id),
-    })),
-  },
-  {
     label: "L'approche Modelisys",
     links: [...heroFeatureFooterLinks],
+  },
+  {
+    label: "Notre service",
+    links: [
+      { title: "Accompagnement financier fractionnaire", href: "/#approche-modelisys" },
+    ],
   },
   {
     label: "Entreprise",
@@ -50,6 +48,7 @@ const footerLinks: FooterSection[] = [
     label: "Ressources",
     links: [
       { title: "Blog", href: "/blog" },
+      { title: "Quiz", href: "/ressources" },
     ],
   },
 ]
@@ -107,14 +106,9 @@ export function Footer() {
         </div>
       </div>
 
-      {/* Bande de défilement — haut du footer */}
       <div className="relative z-20 w-full overflow-hidden border-b border-white/10">
         <div className="footer-marquee-mask">
-          <div
-            className="footer-marquee-track"
-            aria-label="Messages Modelisys"
-            role="region"
-          >
+          <div className="footer-marquee-track" aria-label="Messages Modelisys" role="region">
             <div className="footer-marquee-row">
               {footerMarqueeItems.map((text) => (
                 <div key={text} className="footer-marquee-item">
@@ -138,7 +132,7 @@ export function Footer() {
       <div className="relative z-10 mx-auto max-w-[1920px] px-8 pt-10 pb-16 sm:px-12 sm:pt-12 sm:pb-20 lg:px-16 lg:pt-14 lg:pb-24 xl:px-20">
         {/* Filigrane m. — même principe que la section Valeur (post-features) */}
         <div
-          className="pointer-events-none absolute inset-y-0 left-1/2 right-0 z-[1] hidden overflow-x-hidden overflow-y-visible lg:block"
+          className="pointer-events-none absolute inset-y-0 left-1/2 right-0 z-[1] hidden overflow-hidden lg:block"
           aria-hidden
         >
           <span className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 select-none text-[clamp(16rem,min(52vw,68vh),48rem)] font-semibold leading-none tracking-tight text-white/[0.055] xl:text-[clamp(18rem,min(48vw,72vh),56rem)]">
@@ -207,7 +201,7 @@ export function Footer() {
           </AnimatedContainer>
 
           {/* Liens — colonnes sur fond droit du split */}
-          <div className="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3 lg:pt-2">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-10 lg:pt-2">
             {footerLinks.map((section, index) => (
               <AnimatedContainer key={section.label} delay={0.08 + index * 0.06}>
                 <div>

@@ -30,11 +30,9 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(marquee.getByText(/Risque — multiple 4,5×/)).toBeVisible()
   })
 
-  test("section Rendement précède Notre objectif, puis Nos services, puis L'approche Modelisys", async ({
-    page,
-  }) => {
+  test("section Rendement précède Notre objectif, puis L'approche Modelisys", async ({ page }) => {
     const order = await page.evaluate(() => {
-      const ids = ["rendement", "notre-objectif", "nos-services", "approche-modelisys"]
+      const ids = ["rendement", "notre-objectif", "approche-modelisys"]
       return ids.map((id) => {
         const el = document.getElementById(id)
         if (!el) return null
@@ -49,45 +47,11 @@ test.describe("Landing — approche et leviers de valeur", () => {
     }
   })
 
-  test("section Nos services présente Accompagnement, Licence et Développement", async ({
-    page,
-  }) => {
-    const section = page.locator("#nos-services")
-    await section.scrollIntoViewIfNeeded()
-
-    await expect(section.getByText("Nos services", { exact: true })).toBeVisible()
+  test("la page d'accueil ne contient plus la section Nos services", async ({ page }) => {
+    await expect(page.locator("#nos-services")).toHaveCount(0)
     await expect(
-      section.getByRole("heading", { name: "Le bon niveau d'intervention, au bon moment" }),
-    ).toBeVisible()
-    await expect(section.getByText("Aperçu — Mise en place")).toHaveCount(0)
-    await expect(section.getByRole("button", { name: /Mandats ponctuels/ })).toHaveCount(0)
-    await expect(
-      section.getByRole("button", { name: /Accompagnement financier/ }).first(),
-    ).toBeVisible()
-    await expect(section.getByRole("button", { name: /Licence Modelisys/ }).first()).toBeVisible()
-    await expect(section.getByRole("button", { name: /Développement/ }).first()).toBeVisible()
-    await expect(section.getByText("Une question précise. Une analyse solide.")).toHaveCount(0)
-    await expect(section.getByText("Un accompagnement financier innovant")).toBeVisible()
-    await expect(section.getByText(/Optimiser le rendement et augmenter la valeur/i)).toBeVisible()
-    await expect(section.getByText(/relais senior/i)).toHaveCount(0)
-    await expect(section.getByText("Le moteur Excel Modelisys", { exact: true })).toBeVisible()
-    await expect(
-      section.getByText("Votre réalité ne correspond pas à un modèle standard ?"),
-    ).toBeVisible()
-    await expect(section.getByRole("tab")).toHaveCount(0)
-    await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(0),
-    ).toHaveAttribute("href", "/services/accompagnement-financier")
-    await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(1),
-    ).toHaveAttribute("href", "/services/licences")
-    await expect(
-      section.getByRole("link", { name: "Découvrir" }).nth(2),
-    ).toHaveAttribute("href", "/services/developpement-sur-mesure")
-    await expect(
-      section.getByRole("heading", { name: "Une approche qui s'adapte à votre entreprise" }),
+      page.getByRole("heading", { name: "Analyste financier fractionnaire" }),
     ).toHaveCount(0)
-    await expect(section.getByRole("link", { name: /VOIR LE DÉTAIL DES SERVICES/i })).toHaveCount(0)
   })
 
   test("section Notre objectif affiche les questions de dirigeants", async ({ page }) => {
@@ -97,7 +61,7 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.getByText("Notre objectif")).toBeVisible()
     await expect(
       section.getByRole("heading", {
-        name: "Transformer les chiffres en décisions qui créent de la valeur",
+        name: "Vous aider à comprendre et à augmenter la valeur de votre entreprise",
       }),
     ).toBeVisible()
     await expect(
@@ -159,6 +123,17 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.getByRole("button", { name: /01.*Comprendre/ })).toBeVisible()
     await expect(section.locator("#phase-planification")).toBeAttached()
     await expect(section.locator("#phase-pilotage")).toBeAttached()
+    await expect(section.getByText("Accompagnement financier fractionnaire")).toBeVisible()
+    await expect(section.getByText(/sans embauche à temps plein/)).toBeVisible()
+
+    const faq = section.locator("#approche-faq")
+    await faq.scrollIntoViewIfNeeded()
+    await expect(faq.getByText("Questions fréquentes")).toBeVisible()
+    const question = faq.getByRole("button", {
+      name: "Qu’est-ce qu’un accompagnement financier fractionnaire ?",
+    })
+    await question.click()
+    await expect(faq.getByText(/comprendre, planifier, puis exécuter/)).toBeVisible()
   })
 
   test("EN SAVOIR PLUS mène vers l'approche Modelisys", async ({ page }) => {

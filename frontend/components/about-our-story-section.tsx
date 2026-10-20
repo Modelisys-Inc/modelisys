@@ -319,19 +319,18 @@ export function AboutOurStorySection() {
           >
             <StepRail n="06" />
             <div className="min-w-0">
-              <StorySectionHeader eyebrow="Le déclic" title="Construire ce qui n'existait pas" />
+              <StorySectionHeader eyebrow="Le déclic" title="Se tenir aux côtés du dirigeant" />
               <motion.div {...contentMotion} className="space-y-8">
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
                   C&apos;est l&apos;accumulation de ces constats — répétés pendant des années, dans les deux univers — qui a déclenché
-                  la décision. Non pas de critiquer les outils existants, mais de construire ce qui n&apos;existait pas : une
-                  firme qui réunit le dirigeant et son conseiller autour de la même lecture financière, avec un parcours
-                  structuré — comprendre, planifier et exécuter.
+                  la décision. Modelisys est né pour se tenir aux côtés du dirigeant : comprendre ce qui impacte la valeur,
+                  planifier les décisions, puis exécuter, au rythme de l&apos;entreprise.
                 </p>
                 <div className="h-px w-full max-w-2xl bg-slate-200/90" aria-hidden />
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                  Modelisys structure la méthode pour mesurer, visionner, modéliser, exécuter et ajuster. Les services —
-                  accompagnement, licence ou développement — s&apos;activent selon le besoin. Un CPA qui
-                  partage les mêmes chiffres peut enfin jouer pleinement son rôle de conseiller.
+                  C&apos;est l&apos;accompagnement financier fractionnaire. Nous lisons avec le propriétaire les rapports de
+                  gestion, nous relions les chiffres aux décisions et à la valeur, et nous restons présents d&apos;une période
+                  à l&apos;autre — sans embauche à temps plein.
                 </p>
               </motion.div>
             </div>
@@ -374,10 +373,9 @@ export function AboutOurStorySection() {
               >
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">Pourquoi Modelisys existe</p>
                 <p className="mt-6 max-w-3xl text-[15px] leading-[1.8] text-[#5C5F66] sm:text-[17px]">
-                  C&apos;est pour ça que Modelisys existe. Non pas pour remplacer le conseiller — mais pour lui donner, ainsi qu&apos;au
-                  dirigeant, l&apos;approche qu&apos;ils n&apos;avaient jamais eue : ancrer un point de départ, fixer une vision
-                  chiffrée, suivre les écarts et recalibrer au fil du temps — en partenariat, adapté à la réalité des PME
-                  d&apos;ici.
+                  Modelisys existe pour que cette lecture arrive à temps. Nous accompagnons les propriétaires de PME au
+                  rythme de leur entreprise : mieux lire la comptabilité, isoler les leviers qui impactent réellement la
+                  valeur, et décider pendant que la trajectoire peut encore changer.
                 </p>
               </motion.div>
             </div>

@@ -38,7 +38,7 @@ export function ServicesPillarPageSection({ pillar }: ServicesPillarPageSectionP
         <ServicesFaqSection items={getServicesFaq(pillar.id)} />
 
         <div className="mt-16 sm:mt-20">
-          <ServicesOtherServicesSection currentId={pillar.id} />
+          <ServicesOtherServicesSection />
         </div>
       </div>
     </div>

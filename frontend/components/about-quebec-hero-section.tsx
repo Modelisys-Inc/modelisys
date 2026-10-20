@@ -75,7 +75,7 @@ function AboutQuebecSignal({ className = "" }: { className?: string }) {
           <span className="text-sm font-medium tracking-wide">Québec, Canada</span>
         </div>
         <p className="mx-auto mt-5 max-w-[16rem] text-[13px] leading-relaxed text-[#C9B8A5]/65">
-          Fondée ici. Pratiquée ici.
+          Une firme d’ici, au service de toutes les sociétés du Québec.
         </p>
       </div>
     </div>
@@ -137,14 +137,14 @@ export function AboutQuebecHeroSection() {
             </p>
 
             <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
-              Fondée et pratiquée au Québec
+              Notre vision
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
-              Notre vision : améliorer la compréhension de la valeur auprès des
-              propriétaires. Nous agissons en support pour les aider à mieux lire
-              leur comptabilité — et à isoler les leviers qui impactent réellement
-              la valeur de leur entreprise.
+              Améliorer la compréhension de la valeur auprès des propriétaires de
+              PME. Nous agissons en support pour les aider à mieux lire leur
+              comptabilité et à isoler les leviers qui impactent réellement la
+              valeur de leur entreprise.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">

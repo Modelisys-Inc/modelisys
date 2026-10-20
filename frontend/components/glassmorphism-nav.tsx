@@ -5,7 +5,6 @@ import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
 import { heroFeatureFooterLinks } from "@/lib/hero-features"
-import { SERVICES_PAGE_PILLARS, getServicePagePath } from "@/lib/services-page-content"
 
 const NOTRE_APPROCHE_SECTION = "/#approche-modelisys"
 
@@ -14,19 +13,21 @@ const approcheSubLinks = heroFeatureFooterLinks.map((link) => ({
   href: link.href,
 }))
 
-const serviceSubLinks = SERVICES_PAGE_PILLARS.map((pillar) => ({
-  name: pillar.label,
-  href: getServicePagePath(pillar.id),
-}))
-
 type NavItem =
   | { name: string; href: string }
   | { name: string; href: string; children: { name: string; href: string }[] }
 
 const desktopNavItems: readonly NavItem[] = [
   { name: "Notre objectif", href: "/#notre-objectif" },
-  { name: "Nos services", href: "/services", children: serviceSubLinks },
   { name: "Notre approche", href: NOTRE_APPROCHE_SECTION, children: approcheSubLinks },
+  {
+    name: "Ressources",
+    href: "/ressources",
+    children: [
+      { name: "Blog", href: "/blog" },
+      { name: "Quiz", href: "/ressources" },
+    ],
+  },
   { name: "À propos", href: "/a-propos" },
 ]
 
@@ -76,7 +77,7 @@ function DesktopFlyout({
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
       </Link>
       <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
-        <div className="min-w-[14rem] rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md">
+        <div className="min-w-[18rem] rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md">
           {items.map((sub) => (
             <Link
               key={sub.href}

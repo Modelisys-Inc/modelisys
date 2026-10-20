@@ -284,7 +284,7 @@ export function LandingObjectifSection() {
             </p>
 
             <h2 className="mt-5 max-w-xl text-3xl font-semibold leading-[1.15] tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.35rem] md:leading-tight">
-              Transformer les chiffres en décisions qui créent de la valeur
+              Vous aider à comprendre et à augmenter la valeur de votre entreprise
             </h2>
 
             <p className="mt-5 max-w-lg text-base leading-relaxed text-[#5C5F66] sm:text-lg">

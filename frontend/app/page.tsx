@@ -5,7 +5,6 @@ import { HeroSection } from "@/components/hero-section"
 import { HeroMarquee } from "@/components/hero-marquee"
 import { LandingBusinessReturnSection } from "@/components/landing-business-return-section"
 import { LandingObjectifSection } from "@/components/landing-objectif-section"
-import { LandingServicesSection } from "@/components/landing-services-section"
 import { LandingQuotidienMarquee } from "@/components/landing-quotidien-marquee"
 import { LandingApprocheSection } from "@/components/landing-approche-section"
 import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
@@ -44,7 +43,6 @@ export default function LandingPage() {
           </section>
           <LandingBusinessReturnSection />
           <LandingObjectifSection />
-          <LandingServicesSection />
           <LandingQuotidienMarquee />
           <LandingApprocheSection />
           <LandingBlogTeaserSection />
