@@ -29,6 +29,7 @@ const desktopNavItems: readonly NavItem[] = [
     ],
   },
   { name: "À propos", href: "/a-propos" },
+  { name: "Tarification", href: "/tarification" },
 ]
 
 const mobileNavItems = desktopNavItems.flatMap((item) =>
