@@ -125,15 +125,8 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await expect(section.locator("#phase-pilotage")).toBeAttached()
     await expect(section.getByText("Accompagnement financier fractionnaire")).toBeVisible()
     await expect(section.getByText(/sans embauche à temps plein/)).toBeVisible()
-
-    const faq = section.locator("#approche-faq")
-    await faq.scrollIntoViewIfNeeded()
-    await expect(faq.getByText("Questions fréquentes")).toBeVisible()
-    const question = faq.getByRole("button", {
-      name: "Qu’est-ce qu’un accompagnement financier fractionnaire ?",
-    })
-    await question.click()
-    await expect(faq.getByText(/comprendre, planifier, puis exécuter/)).toBeVisible()
+    await expect(section.locator("#approche-faq")).toHaveCount(0)
+    await expect(section.getByText("Questions fréquentes")).toHaveCount(0)
   })
 
   test("EN SAVOIR PLUS mène vers l'approche Modelisys", async ({ page }) => {

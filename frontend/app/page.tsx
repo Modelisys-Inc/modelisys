@@ -7,6 +7,7 @@ import { LandingBusinessReturnSection } from "@/components/landing-business-retu
 import { LandingObjectifSection } from "@/components/landing-objectif-section"
 import { LandingQuotidienMarquee } from "@/components/landing-quotidien-marquee"
 import { LandingApprocheSection } from "@/components/landing-approche-section"
+import { LandingRapportSection } from "@/components/landing-rapport-section"
 import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
 import { PostFeaturesSection } from "@/components/post-features-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
@@ -64,6 +65,7 @@ function LandingPageBody() {
           <LandingObjectifSection />
           <LandingQuotidienMarquee />
           <LandingApprocheSection />
+          <LandingRapportSection />
           <LandingBlogTeaserSection />
           <PostFeaturesSection />
           <DemoBookingSection />

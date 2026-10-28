@@ -62,11 +62,6 @@ const nextConfig = {
         permanent: true,
       },
       {
-        source: "/tarification",
-        destination: "/",
-        permanent: true,
-      },
-      {
         source: "/cabinets-comptables",
         destination: "/",
         permanent: true,

@@ -76,9 +76,37 @@ test.describe("Navigation & Routing", () => {
     await expect(page.getByRole("link", { name: "Études de cas" })).toHaveCount(0)
   })
 
+  test("la page tarification présente les trois formules", async ({ page }) => {
+    const res = await page.goto("/tarification", {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    })
+    expect(res?.status()).toBe(200)
+    await expect(page).toHaveURL(/\/tarification$/)
+    await expect(page).toHaveTitle(/Tarification/i)
+    await expect(
+      page.getByRole("heading", { name: "Des solutions financières adaptées à vos ambitions" }),
+    ).toBeVisible()
+    await expect(page.getByText("À partir de 3 500 $")).toBeVisible()
+    await expect(page.getByText("À partir de 750 $ par mois")).toBeVisible()
+    await expect(page.getByText("Sur devis")).toBeVisible()
+    await expect(page.getByRole("link", { name: "Discuter de vos besoins financiers" })).toHaveAttribute(
+      "href",
+      "/#demo",
+    )
+
+    const faq = page.locator("#questions-frequentes")
+    await faq.scrollIntoViewIfNeeded()
+    await expect(faq.getByRole("heading", { name: "Questions fréquentes" })).toBeVisible()
+    const question = faq.getByRole("button", {
+      name: "Qu’est-ce qu’un accompagnement financier fractionnaire ?",
+    })
+    await question.click()
+    await expect(faq.getByText(/comprendre la situation, planifier les priorités, puis exécuter/)).toBeVisible()
+  })
+
   test("removed marketing pages redirect to the landing", async ({ page }) => {
     for (const route of [
-      "/tarification",
       "/cabinets-comptables",
       "/partenaires-financiers",
       "/clause-de-non-responsabilite",

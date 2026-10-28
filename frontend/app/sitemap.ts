@@ -7,7 +7,9 @@ const BASE_URL =
 const MARKETING_PATHS = [
   "/",
   "/a-propos",
+  "/tarification",
   "/contact",
+  "/rapport-de-gestion",
   "/blog",
   "/ressources",
   "/ressources/lecture-de-la-valeur",

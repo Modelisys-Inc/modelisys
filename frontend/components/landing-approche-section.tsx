@@ -3,13 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import { LandingApprochePhaseBlock } from "@/components/landing-approche-phase-block"
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
-import { APPROCHE_FAQ } from "@/lib/approche-faq"
-import {
   APPROCHE_PHASE_NAVIGATE_EVENT,
   APPROCHE_SCROLL_TARGET_ID,
   APPROCHE_SECTION_ID,
@@ -81,7 +74,7 @@ export function LandingApprocheSection() {
         <div className="absolute bottom-0 left-[-6%] h-[22rem] w-[22rem] rounded-full bg-[#2A2F3A]/[0.03] blur-3xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 pb-16 sm:px-10 sm:pb-20 lg:px-12 lg:pb-24 xl:px-16 xl:pb-28 2xl:px-20">
         <div
           id={APPROCHE_SCROLL_TARGET_ID}
           className="scroll-mt-[7.5rem] h-0 sm:scroll-mt-32"
@@ -89,7 +82,7 @@ export function LandingApprocheSection() {
         />
 
         <div
-          className={`pt-16 sm:pt-20 lg:pt-24 xl:pt-28 transition-all duration-1000 ${
+          className={`pt-16 transition-all duration-1000 sm:pt-20 lg:pt-24 xl:pt-28 ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
           }`}
         >
@@ -166,63 +159,7 @@ export function LandingApprocheSection() {
             />
           ))}
         </div>
-
-        <ApprocheFaq />
       </div>
     </section>
-  )
-}
-
-function ApprocheFaq() {
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: APPROCHE_FAQ.map((item) => ({
-      "@type": "Question",
-      name: item.question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: item.answer,
-      },
-    })),
-  }
-
-  return (
-    <div
-      id="approche-faq"
-      className="scroll-mt-28 border-t border-[#2A2F3A]/10 pb-16 pt-14 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20 xl:pb-28"
-    >
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
-      <div className="grid gap-10 lg:grid-cols-12 lg:gap-14">
-        <div className="lg:col-span-4">
-          <p
-            id="approche-faq-heading"
-            className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#9A4A1A]"
-          >
-            Questions fréquentes
-          </p>
-          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-slate-600">
-            Ce que les dirigeants clarifient avant de démarrer l’accompagnement.
-          </p>
-        </div>
-        <Accordion
-          type="single"
-          collapsible
-          className="lg:col-span-8"
-          aria-labelledby="approche-faq-heading"
-        >
-          {APPROCHE_FAQ.map((item, index) => (
-            <AccordionItem key={item.question} value={`approche-faq-${index}`} className="border-[#2A2F3A]/10">
-              <AccordionTrigger className="py-5 text-left text-[15px] font-semibold leading-snug tracking-tight text-[#2A2F3A] hover:no-underline hover:text-[#9A4A1A] [&[data-state=open]]:text-[#9A4A1A]">
-                {item.question}
-              </AccordionTrigger>
-              <AccordionContent className="pb-5 text-[15px] leading-relaxed text-slate-600">
-                {item.answer}
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </div>
-    </div>
   )
 }

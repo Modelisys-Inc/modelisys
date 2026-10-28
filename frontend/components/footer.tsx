@@ -33,6 +33,8 @@ const footerLinks: FooterSection[] = [
     label: "Notre service",
     links: [
       { title: "Accompagnement financier fractionnaire", href: "/#approche-modelisys" },
+      { title: "Diagnostic financier et planification", href: "/rapport-de-gestion" },
+      { title: "Tarification", href: "/tarification" },
     ],
   },
   {
