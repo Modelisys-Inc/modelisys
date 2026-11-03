@@ -105,24 +105,33 @@ export function AboutQuebecHeroSection() {
       id="quebec"
       className="relative overflow-hidden scroll-mt-24"
     >
-      {/* Même scène continue que le hero landing */}
       <div className="pointer-events-none absolute inset-0 bg-[#222732]">
         <div
-          className="absolute inset-0 opacity-[0.4]"
+          className="absolute -right-[6%] -top-[22%] h-[70%] w-[55%] rounded-full"
           aria-hidden
           style={{
-            backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
-              linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
-            backgroundSize: "56px 56px",
-            maskImage:
-              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
-            WebkitMaskImage:
-              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            background: "radial-gradient(circle, rgba(230,214,195,0.16) 0%, rgba(230,214,195,0) 68%)",
+            filter: "blur(36px)",
           }}
         />
-        <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
-        <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
+        <div
+          className="absolute -left-[18%] top-[46%] h-[34%] w-[140%] -rotate-[14deg]"
+          aria-hidden
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 0%, rgba(230,214,195,0.16) 28%, rgba(224,116,45,0.38) 62%, transparent 88%)",
+            filter: "blur(22px)",
+          }}
+        />
+        <div
+          className="absolute -left-[10%] bottom-[-6%] h-[16%] w-[120%] -rotate-[12deg]"
+          aria-hidden
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 8%, rgba(224,116,45,0.42) 46%, rgba(230,214,195,0.22) 68%, transparent 88%)",
+            filter: "blur(18px)",
+          }}
+        />
       </div>
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
@@ -132,44 +141,40 @@ export function AboutQuebecHeroSection() {
               visible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
             }`}
           >
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
-              À propos
-            </p>
+            <p className="text-sm text-[#C9B8A5]/75">À propos</p>
 
-            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+            <h1 className="mt-6 max-w-[20rem] text-[1.85rem] font-medium leading-[1.22] tracking-[-0.02em] text-balance text-[#E6D6C3] sm:max-w-[36rem] sm:text-[2.15rem] lg:max-w-none lg:text-[2.35rem] xl:text-[2.5rem]">
               Notre vision
             </h1>
 
-            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+            <p className="mt-7 max-w-xl text-[15px] leading-relaxed text-[#C9B8A5]/82 sm:text-base">
               Améliorer la compréhension de la valeur auprès des propriétaires de
               PME. Nous agissons en support pour les aider à mieux lire leur
               comptabilité et à isoler les leviers qui impactent réellement la
               valeur de leur entreprise.
             </p>
 
-            <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
+            <div className="mt-10 flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center">
               <Link
                 href="/contact"
-                className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
+                className="group inline-flex items-center gap-2 rounded-full border border-[#E6D6C3]/75 px-5 py-2.5 text-sm text-[#E6D6C3] transition hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
               >
-                ÉCHANGER AVEC NOUS
                 <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                Échanger avec nous
               </Link>
 
               <a
                 href="#histoire"
-                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                className="px-1 py-2 text-sm text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
-                NOTRE HISTOIRE
-                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
+                Notre histoire
               </a>
 
               <a
                 href="#equipe"
-                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                className="px-1 py-2 text-sm text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
-                LE FONDATEUR
-                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
+                Le fondateur
               </a>
             </div>
           </div>

@@ -82,25 +82,8 @@ export function LandingBlogTeaserSection() {
     <section
       id="blog-vedette"
       aria-labelledby="landing-blog-teaser-heading"
-      className="relative z-10 scroll-mt-24 overflow-hidden bg-[#F8FAFC]"
+      className="relative z-10 scroll-mt-24 bg-[#F0F4F8]"
     >
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div
-          className="absolute inset-0 opacity-45"
-          style={{
-            backgroundImage: `
-              linear-gradient(to right, rgb(42 47 58 / 0.04) 1px, transparent 1px),
-              linear-gradient(to bottom, rgb(42 47 58 / 0.04) 1px, transparent 1px)
-            `,
-            backgroundSize: "56px 56px",
-            maskImage: "radial-gradient(ellipse 70% 60% at 75% 40%, black 15%, transparent 75%)",
-            WebkitMaskImage:
-              "radial-gradient(ellipse 70% 60% at 75% 40%, black 15%, transparent 75%)",
-          }}
-        />
-        <div className="absolute -top-20 left-[-5%] h-72 w-72 rounded-full bg-[#E0742D]/[0.04] blur-3xl" />
-      </div>
-
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 py-16 sm:px-10 sm:py-20 lg:px-12 lg:py-24 xl:px-16 2xl:px-20">
         <div className="grid grid-cols-1 items-stretch gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)] lg:gap-12 xl:gap-16">
           {/* Colonne gauche — éditorial + CTA + flèches */}
@@ -123,7 +106,7 @@ export function LandingBlogTeaserSection() {
               <div className="mt-8 flex flex-col items-start gap-3">
                 <Link
                   href="/blog"
-                  className="group inline-flex items-center gap-2 rounded-md bg-[#E6D6C3] px-4 py-2.5 text-xs font-semibold tracking-[0.06em] text-[#1F2430] transition hover:bg-[#f0e6d8]"
+                  className="group inline-flex items-center gap-2 rounded-md bg-[#E6D6C3] px-4 py-2.5 text-xs font-semibold tracking-[0.06em] text-[#1F2430] transition duration-200 hover:bg-[#222732] hover:text-[#E6D6C3]"
                 >
                   Voir les articles
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -147,7 +130,7 @@ export function LandingBlogTeaserSection() {
                 className={cn(
                   "flex h-11 w-11 items-center justify-center rounded-full border transition",
                   canPrev
-                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#353b48]"
+                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732]"
                     : "cursor-not-allowed border-slate-200 bg-white text-slate-300",
                 )}
               >
@@ -161,7 +144,7 @@ export function LandingBlogTeaserSection() {
                 className={cn(
                   "flex h-11 w-11 items-center justify-center rounded-full border transition",
                   canNext
-                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#353b48]"
+                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732]"
                     : "cursor-not-allowed border-slate-200 bg-white text-slate-300",
                 )}
               >

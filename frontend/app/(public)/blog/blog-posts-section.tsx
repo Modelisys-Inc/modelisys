@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
+import { ArrowRight } from "lucide-react"
 import type { BlogPostCard } from "@/lib/blog-posts"
 
 export type { BlogPostCard }
@@ -25,14 +26,14 @@ export function BlogPostsSection({ posts }: { posts: BlogPostCard[] }) {
   }, [posts, activeTag])
 
   const tagChipBase =
-    "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-sm transition-colors"
+    "inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors"
 
   return (
     <div className="relative mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
       <div className="mb-8 sm:mb-10">
         <div className="max-w-3xl">
-          <p className="text-sm font-semibold tracking-wide text-slate-500">Articles</p>
-          <h2 className="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-[#2A2F3A]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Articles</p>
+          <h2 className="mt-5 text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-[#2A2F3A] sm:text-[2.2rem]">
             À lire pour structurer vos analyses
           </h2>
           <p className="mt-3 text-[15px] leading-relaxed text-[#5C5F66]">
@@ -50,8 +51,8 @@ export function BlogPostsSection({ posts }: { posts: BlogPostCard[] }) {
             onClick={() => setActiveTag("__all__")}
             className={`${tagChipBase} ${
               activeTag === "__all__"
-                ? "border-slate-300/90 bg-white text-[#2A2F3A]"
-                : "border-transparent bg-white/60 text-slate-600 hover:bg-white/80"
+                ? "border-[#2A2F3A] text-[#2A2F3A]"
+                : "border-[#2A2F3A]/15 text-[#5C5F66] hover:border-[#2A2F3A]/40 hover:text-[#2A2F3A]"
             }`}
             aria-pressed={activeTag === "__all__"}
           >
@@ -64,8 +65,8 @@ export function BlogPostsSection({ posts }: { posts: BlogPostCard[] }) {
               onClick={() => setActiveTag(t)}
               className={`${tagChipBase} ${
                 activeTag === t
-                  ? "border-slate-300/90 bg-white text-[#2A2F3A]"
-                  : "border-transparent bg-white/60 text-slate-600 hover:bg-white/80"
+                  ? "border-[#2A2F3A] text-[#2A2F3A]"
+                  : "border-[#2A2F3A]/15 text-[#5C5F66] hover:border-[#2A2F3A]/40 hover:text-[#2A2F3A]"
               }`}
               aria-pressed={activeTag === t}
             >
@@ -77,64 +78,41 @@ export function BlogPostsSection({ posts }: { posts: BlogPostCard[] }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {filteredPosts.map((p) => (
-          <article
-            key={p.href}
-            className="relative flex h-full flex-col overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07] hover:scale-[1.01]"
-          >
-            <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
-            <div className="pointer-events-none absolute inset-0 opacity-[0.03]">
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: `radial-gradient(circle at 2px 2px, rgb(42 47 58) 1px, transparent 0)`,
-                  backgroundSize: "24px 24px",
-                }}
-              />
+          <article key={p.href} className="flex h-full flex-col border-t border-[#2A2F3A]/15 pt-6">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-semibold">{p.dateLabel}</span>
+              <span aria-hidden className="text-slate-300">
+                •
+              </span>
+              <span>{p.readingTime}</span>
             </div>
 
-            <div className="relative flex flex-1 flex-col p-7 sm:p-9">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="font-semibold">{p.dateLabel}</span>
-                <span aria-hidden className="text-slate-300">
-                  •
-                </span>
-                <span>{p.readingTime}</span>
-              </div>
+            <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+              <Link href={p.href} className="hover:text-[#E0742D]">
+                {p.title}
+              </Link>
+            </h3>
 
-              <h3 className="mt-3 text-xl sm:text-2xl font-semibold tracking-tight text-[#2A2F3A]">
-                <Link href={p.href} className="hover:underline decoration-[#E0742D]/70 underline-offset-4">
-                  {p.title}
-                </Link>
-              </h3>
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5C5F66]">{p.excerpt}</p>
 
-              <p className="mt-3 text-[15px] leading-relaxed text-[#5C5F66]">{p.excerpt}</p>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                {p.tags.map((t) => (
-                  <span
-                    key={`${p.href}:${t}`}
-                    className="inline-flex items-center rounded-full border border-slate-200/90 bg-white/90 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm"
-                  >
-                    {t}
-                  </span>
-                ))}
-                <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#2A2F3A] ring-1 ring-slate-200/90">
-                  Modelisys
-                </span>
-              </div>
-
-              <div className="mt-6">
-                <Link
-                  href={p.href}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#E0742D] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#c96526]"
+            <div className="mt-5 flex flex-wrap gap-2">
+              {p.tags.map((t) => (
+                <span
+                  key={`${p.href}:${t}`}
+                  className="inline-flex items-center rounded-full border border-[#2A2F3A]/15 px-3 py-1 text-xs text-[#5C5F66]"
                 >
-                  Lire l’article
-                  <span aria-hidden className="text-white/90">
-                    →
-                  </span>
-                </Link>
-              </div>
+                  {t}
+                </span>
+              ))}
             </div>
+
+            <Link
+              href={p.href}
+              className="group mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#2A2F3A] transition hover:text-[#E0742D]"
+            >
+              Lire l’article
+              <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+            </Link>
           </article>
         ))}
       </div>

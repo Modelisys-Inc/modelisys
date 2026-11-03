@@ -7,17 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Mail,
-  Phone,
-  MapPin,
-  Send,
-  CheckCircle2,
-  Building2,
-  User,
-  MessageSquare,
-  ChevronDown,
-} from "lucide-react"
+import { ArrowRight, CheckCircle2, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const SUBJECT_OPTIONS = [
@@ -27,8 +17,11 @@ const SUBJECT_OPTIONS = [
   "Autre",
 ] as const
 
+const fieldClass =
+  "h-12 border-[#2A2F3A]/15 bg-white shadow-none focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
+
 const subjectSelectClassName =
-  "flex h-12 w-full cursor-pointer appearance-none rounded-md border border-slate-200 bg-white/80 px-3 py-2 pr-10 text-sm text-[#2A2F3A] shadow-sm outline-none transition-[color,box-shadow] focus-visible:border-[#E0742D]/80 focus-visible:ring-[3px] focus-visible:ring-[#E0742D]/25 disabled:cursor-not-allowed disabled:opacity-50"
+  "flex h-12 w-full cursor-pointer appearance-none rounded-md border border-[#2A2F3A]/15 bg-white px-3 py-2 pr-10 text-sm text-[#2A2F3A] shadow-none outline-none transition-[color,box-shadow] focus-visible:border-[#E0742D]/80 focus-visible:ring-[3px] focus-visible:ring-[#E0742D]/25 disabled:cursor-not-allowed disabled:opacity-50"
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -86,324 +79,258 @@ export default function ContactPage() {
     }))
   }
 
-  // Aligné sur les cartes « Comment ça fonctionne » / « Demande » (demo-booking-section).
-  const cardShell = "relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white/80 shadow-sm"
-  const cardAccent = "pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-[#E0742D]/[0.10]"
-
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-100/50">
-      {/* Fond aligné sur la section « Pourquoi » (problem-solution) */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `
-              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
-              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
-            `,
-            backgroundSize: "44px 44px",
-            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
-            WebkitMaskImage:
-              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
-        <div className="absolute left-1/2 top-1/3 h-[min(72vh,520px)] w-[min(92vw,880px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-200/20 blur-3xl" />
-      </div>
-
+    <div className="min-h-screen bg-[#F8FAFC] text-[#222732]">
       <GlassmorphismNav />
 
-      <main className="relative z-10 pt-24 pb-16 sm:pb-24">
-        <div className="max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
-          {/* En-tête — même hiérarchie que « Pourquoi » */}
-          <section className="relative py-12 lg:py-16">
-            <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Contact</p>
-            <h1 className="text-3xl sm:text-4xl md:text-5xl mb-4 max-w-4xl font-semibold leading-tight tracking-tight text-[#2A2F3A]">
+      <main>
+        <section className="relative overflow-hidden">
+          <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+            <div
+              className="absolute -right-[6%] -top-[22%] h-[70%] w-[55%] rounded-full"
+              aria-hidden
+              style={{
+                background: "radial-gradient(circle, rgba(230,214,195,0.16) 0%, rgba(230,214,195,0) 68%)",
+                filter: "blur(36px)",
+              }}
+            />
+            <div
+              className="absolute -left-[18%] top-[46%] h-[34%] w-[140%] -rotate-[14deg]"
+              aria-hidden
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent 0%, rgba(230,214,195,0.16) 28%, rgba(224,116,45,0.38) 62%, transparent 88%)",
+                filter: "blur(22px)",
+              }}
+            />
+            <div
+              className="absolute -left-[10%] bottom-[-6%] h-[16%] w-[120%] -rotate-[12deg]"
+              aria-hidden
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent 8%, rgba(224,116,45,0.42) 46%, rgba(230,214,195,0.22) 68%, transparent 88%)",
+                filter: "blur(18px)",
+              }}
+            />
+          </div>
+          <div className="relative z-10 mx-auto max-w-[1920px] px-5 py-16 sm:px-10 sm:py-24 lg:px-12 lg:py-28 xl:px-16 2xl:px-20">
+            <p className="text-sm text-[#C9B8A5]/75">Contact</p>
+            <h1 className="mt-6 max-w-3xl text-[1.85rem] font-medium leading-[1.22] tracking-[-0.02em] text-balance text-[#E6D6C3] sm:text-[2.15rem] lg:text-[2.35rem] xl:text-[2.5rem]">
               Parlons de votre projet
             </h1>
-            <p className="text-lg sm:text-xl text-[#5C5F66] max-w-3xl leading-relaxed">
+            <p className="mt-7 max-w-xl text-[15px] leading-relaxed text-[#C9B8A5]/82 sm:text-base">
               Notre équipe est prête à vous accompagner dans la transformation de votre analyse financière.
               Discutons de vos besoins et voyons comment Modelisys peut répondre à vos enjeux.
             </p>
-            <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
-          </section>
+          </div>
+        </section>
 
-          <section className="pb-4 lg:pb-8">
-            <div className="grid lg:grid-cols-3 gap-8 lg:gap-12">
-              <div className="lg:col-span-1 space-y-8">
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-[#2A2F3A] mb-4 tracking-tight">
-                    Informations de contact
-                  </h2>
-                  <p className="text-[#5C5F66] leading-relaxed">
-                    N&apos;hésitez pas à nous écrire pour toute question ou demande d&apos;information. Nous vous
-                    répondrons dans les plus brefs délais.
-                  </p>
+        <section className="px-5 py-16 sm:px-10 sm:py-20 lg:px-12 lg:py-24 xl:px-16 2xl:px-20">
+          <div className="mx-auto grid max-w-[1920px] gap-16 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.2fr)] lg:gap-20">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                Informations de contact
+              </h2>
+              <p className="mt-4 max-w-md text-[15px] leading-[1.75] text-[#5C5F66]">
+                N&apos;hésitez pas à nous écrire pour toute question ou demande d&apos;information. Nous vous
+                répondrons dans les plus brefs délais.
+              </p>
+
+              <dl className="mt-10 border-t border-[#2A2F3A]/15">
+                <div className="border-b border-[#2A2F3A]/15 py-5">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">Email</dt>
+                  <dd className="mt-2">
+                    <a href="mailto:contact@modelisys.com" className="text-[#2A2F3A] transition hover:text-[#E0742D]">
+                      contact@modelisys.com
+                    </a>
+                  </dd>
                 </div>
-
-                <div className="space-y-4">
-                  <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
-                    <div className={cardAccent} aria-hidden />
-                    <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
-                        <Mail className="h-5 w-5" strokeWidth={1.75} />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-[#2A2F3A] mb-1">Email</h3>
-                        <a
-                          href="mailto:contact@modelisys.com"
-                          className="text-[#5C5F66] transition-colors hover:text-[#E0742D]"
-                        >
-                          contact@modelisys.com
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
-                    <div className={cardAccent} aria-hidden />
-                    <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
-                        <Phone className="h-5 w-5" strokeWidth={1.75} />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-[#2A2F3A] mb-1">Téléphone</h3>
-                        <a
-                          href="tel:+14508222436"
-                          className="text-[#5C5F66] transition-colors hover:text-[#E0742D]"
-                        >
-                          +1 (450) 822-2436
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
-                    <div className={cardAccent} aria-hidden />
-                    <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
-                        <MapPin className="h-5 w-5" strokeWidth={1.75} />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-[#2A2F3A] mb-1">Localisation</h3>
-                        <p className="text-[#5C5F66]">Québec</p>
-                      </div>
-                    </div>
-                  </div>
+                <div className="border-b border-[#2A2F3A]/15 py-5">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">Téléphone</dt>
+                  <dd className="mt-2">
+                    <a href="tel:+14508222436" className="text-[#2A2F3A] transition hover:text-[#E0742D]">
+                      +1 (450) 822-2436
+                    </a>
+                  </dd>
                 </div>
-
-                <div className={cn(cardShell, "p-6")}>
-                  <div className={cardAccent} aria-hidden />
-                  <div className="relative">
-                    <h3 className="font-semibold text-[#2A2F3A] mb-4">Heures d&apos;ouverture</h3>
-                    <div className="space-y-2 text-sm text-[#5C5F66]">
-                      <div className="flex justify-between gap-4">
-                        <span>Lundi - Vendredi</span>
-                        <span className="font-medium text-[#2A2F3A]">9h00 - 17h00</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span>Samedi - Dimanche</span>
-                        <span className="font-medium text-[#2A2F3A]">Fermé</span>
-                      </div>
-                    </div>
-                  </div>
+                <div className="border-b border-[#2A2F3A]/15 py-5">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">Localisation</dt>
+                  <dd className="mt-2 text-[#2A2F3A]">Québec</dd>
                 </div>
-              </div>
-
-              <div className="lg:col-span-2">
-                <div className={cn(cardShell, "p-8 lg:p-10")}>
-                  <div className={cardAccent} aria-hidden />
-                  <div className="relative">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
-                        <MessageSquare className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                        Message
-                      </div>
+                <div className="border-b border-[#2A2F3A]/15 py-5">
+                  <dt className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                    Heures d&apos;ouverture
+                  </dt>
+                  <dd className="mt-3 space-y-2 text-sm text-[#5C5F66]">
+                    <div className="flex justify-between gap-4">
+                      <span>Lundi - Vendredi</span>
+                      <span className="font-medium text-[#2A2F3A]">9h00 - 17h00</span>
                     </div>
-                    <h2 className="text-xl sm:text-2xl font-semibold text-[#2A2F3A] mb-2 tracking-tight">
-                      Envoyez-nous un message
-                    </h2>
-                    <p className="text-[#5C5F66] mb-8 leading-relaxed">
-                      Remplissez le formulaire ci-dessous et nous vous répondrons dans les plus brefs délais.
-                    </p>
-
-                    {isSubmitted ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#E0742D]/25 bg-[#E0742D]/10">
-                          <CheckCircle2 className="h-8 w-8 text-[#E0742D]" />
-                        </div>
-                        <h3 className="mb-2 text-xl font-semibold text-[#2A2F3A]">Message envoyé</h3>
-                        <p className="max-w-md text-[#5C5F66]">
-                          Merci pour votre message. Nous vous répondrons dans les plus brefs délais.
-                        </p>
-                      </div>
-                    ) : (
-                      <form onSubmit={handleSubmit} className="space-y-6">
-                        <div className="grid gap-6 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="name" className="text-[#2A2F3A]">
-                              Nom complet <span className="text-[#E0742D]">*</span>
-                            </Label>
-                            <div className="relative">
-                              <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="name"
-                                name="name"
-                                type="text"
-                                required
-                                value={formData.name}
-                                onChange={handleChange}
-                                className="h-12 border-slate-200 bg-white/80 pl-10 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                                placeholder="Jean Dupont"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="email" className="text-[#2A2F3A]">
-                              Courriel <span className="text-[#E0742D]">*</span>
-                            </Label>
-                            <div className="relative">
-                              <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="email"
-                                name="email"
-                                type="email"
-                                required
-                                value={formData.email}
-                                onChange={handleChange}
-                                className="h-12 border-slate-200 bg-white/80 pl-10 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                                placeholder="jean.dupont@entreprise.com"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-6 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="company" className="text-[#2A2F3A]">
-                              Entreprise
-                            </Label>
-                            <div className="relative">
-                              <Building2 className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="company"
-                                name="company"
-                                type="text"
-                                value={formData.company}
-                                onChange={handleChange}
-                                className="h-12 border-slate-200 bg-white/80 pl-10 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                                placeholder="Nom de votre entreprise"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="phone" className="text-[#2A2F3A]">
-                              Téléphone
-                            </Label>
-                            <div className="relative">
-                              <Phone className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="phone"
-                                name="phone"
-                                type="tel"
-                                value={formData.phone}
-                                onChange={handleChange}
-                                className="h-12 border-slate-200 bg-white/80 pl-10 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                                placeholder="+1 (450) 822-2436"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="subject" className="text-[#2A2F3A]">
-                            Sujet <span className="text-[#E0742D]">*</span>
-                          </Label>
-                          <div className="relative">
-                            <select
-                              id="subject"
-                              name="subject"
-                              required
-                              value={formData.subject}
-                              onChange={handleChange}
-                              className={cn(subjectSelectClassName, "[&>option]:bg-white")}
-                              aria-label="Sujet du message"
-                            >
-                              <option value="" disabled>
-                                Choisir un sujet
-                              </option>
-                              {SUBJECT_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                            <ChevronDown
-                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                              aria-hidden
-                              strokeWidth={2}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="message" className="text-[#2A2F3A]">
-                            Message <span className="text-[#E0742D]">*</span>
-                          </Label>
-                          <Textarea
-                            id="message"
-                            name="message"
-                            required
-                            value={formData.message}
-                            onChange={handleChange}
-                            rows={6}
-                            className="resize-none border-slate-200 bg-white/80 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                            placeholder="Décrivez votre projet ou vos questions..."
-                          />
-                        </div>
-
-                        <Button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className={cn(
-                            "h-12 w-full bg-[#E0742D] text-base font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition-all duration-200 hover:bg-[#c96526]",
-                            isSubmitting && "cursor-not-allowed opacity-50"
-                          )}
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <span className="mr-2 animate-spin">⏳</span>
-                              Envoi en cours...
-                            </>
-                          ) : (
-                            <>
-                              <Send className="mr-2 h-5 w-5" />
-                              Envoyer le message
-                            </>
-                          )}
-                        </Button>
-
-                        <p className="text-center text-xs text-[#5C5F66]/90">
-                          En soumettant ce formulaire, vous acceptez que nous traitions vos données personnelles
-                          conformément à notre{" "}
-                          <a href="/privacy" className="font-semibold text-[#E0742D] hover:underline">
-                            politique de confidentialité
-                          </a>
-                          .
-                        </p>
-                      </form>
-                    )}
-                  </div>
+                    <div className="flex justify-between gap-4">
+                      <span>Samedi - Dimanche</span>
+                      <span className="font-medium text-[#2A2F3A]">Fermé</span>
+                    </div>
+                  </dd>
                 </div>
-              </div>
+              </dl>
             </div>
-          </section>
-        </div>
+
+            <div className="border-t border-[#2A2F3A]/15 pt-8">
+              <h2 className="text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                Envoyez-nous un message
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">
+                Remplissez le formulaire ci-dessous et nous vous répondrons dans les plus brefs délais.
+              </p>
+
+              {isSubmitted ? (
+                <div className="mt-10 flex items-start gap-4">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#E0742D]" />
+                  <div>
+                    <p className="font-medium text-[#2A2F3A]">Message envoyé</p>
+                    <p className="mt-1 max-w-md text-sm leading-relaxed text-[#5C5F66]">
+                      Merci pour votre message. Nous vous répondrons dans les plus brefs délais.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="name" className="text-[#2A2F3A]">
+                        Nom complet <span className="text-[#E0742D]">*</span>
+                      </Label>
+                      <Input
+                        id="name"
+                        name="name"
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={handleChange}
+                        className={fieldClass}
+                        placeholder="Jean Dupont"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-[#2A2F3A]">
+                        Courriel <span className="text-[#E0742D]">*</span>
+                      </Label>
+                      <Input
+                        id="email"
+                        name="email"
+                        type="email"
+                        required
+                        value={formData.email}
+                        onChange={handleChange}
+                        className={fieldClass}
+                        placeholder="jean.dupont@entreprise.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="company" className="text-[#2A2F3A]">
+                        Entreprise
+                      </Label>
+                      <Input
+                        id="company"
+                        name="company"
+                        type="text"
+                        value={formData.company}
+                        onChange={handleChange}
+                        className={fieldClass}
+                        placeholder="Nom de votre entreprise"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone" className="text-[#2A2F3A]">
+                        Téléphone
+                      </Label>
+                      <Input
+                        id="phone"
+                        name="phone"
+                        type="tel"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        className={fieldClass}
+                        placeholder="+1 (450) 822-2436"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="subject" className="text-[#2A2F3A]">
+                      Sujet <span className="text-[#E0742D]">*</span>
+                    </Label>
+                    <div className="relative">
+                      <select
+                        id="subject"
+                        name="subject"
+                        required
+                        value={formData.subject}
+                        onChange={handleChange}
+                        className={cn(subjectSelectClassName, "[&>option]:bg-white")}
+                        aria-label="Sujet du message"
+                      >
+                        <option value="" disabled>
+                          Choisir un sujet
+                        </option>
+                        {SUBJECT_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                        aria-hidden
+                        strokeWidth={2}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="message" className="text-[#2A2F3A]">
+                      Message <span className="text-[#E0742D]">*</span>
+                    </Label>
+                    <Textarea
+                      id="message"
+                      name="message"
+                      required
+                      value={formData.message}
+                      onChange={handleChange}
+                      rows={6}
+                      className={cn("resize-none", fieldClass)}
+                      placeholder="Décrivez votre projet ou vos questions..."
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className={cn(
+                      "group h-auto w-fit rounded-full bg-[#222732] px-5 py-2.5 text-sm font-normal text-[#E6D6C3] shadow-none transition-colors duration-200 hover:bg-[#E6D6C3] hover:text-[#222732]",
+                      isSubmitting && "cursor-not-allowed opacity-50",
+                    )}
+                  >
+                    <ArrowRight className="mr-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                    {isSubmitting ? "Envoi en cours..." : "Envoyer le message"}
+                  </Button>
+
+                  <p className="max-w-xl text-xs leading-relaxed text-[#5C5F66]">
+                    En soumettant ce formulaire, vous acceptez que nous traitions vos données personnelles
+                    conformément à notre{" "}
+                    <a href="/privacy" className="text-[#2A2F3A] underline decoration-[#E0742D]/80 underline-offset-4">
+                      politique de confidentialité
+                    </a>
+                    .
+                  </p>
+                </form>
+              )}
+            </div>
+          </div>
+        </section>
       </main>
 
       <Footer />

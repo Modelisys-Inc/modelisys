@@ -2,20 +2,30 @@
 
 import { useEffect, useRef, useState } from "react"
 import { BusinessReturnWaterfall } from "@/components/business-return-waterfall"
+import { cn } from "@/lib/utils"
 
-function ReturnFormulaIntro() {
+function ReturnFormulaIntro({ light }: { light: boolean }) {
   return (
     <div className="mt-7 max-w-lg">
-      <p className="text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:text-base">
+      <p
+        className={cn(
+          "text-[15px] leading-[1.75] sm:text-base",
+          light ? "text-[#5C5F66]" : "text-[#C9B8A5]/78",
+        )}
+      >
         En tant qu&apos;actionnaire, votre rendement combine deux mouvements&nbsp;: la variation de
         valeur de votre participation, et ce que l&apos;entreprise vous a versé en chemin.
       </p>
 
-      <div className="mt-8 space-y-0 border-t border-white/[0.08] pt-7">
+      <div className={cn("mt-8 space-y-0 border-t pt-7", light ? "border-[#2A2F3A]/10" : "border-white/[0.08]")}>
         <div className="flex items-baseline justify-between gap-4 py-2.5">
           <div>
-            <p className="text-[13px] font-semibold text-[#E6D6C3]">Création de valeur</p>
-            <p className="mt-0.5 text-[12px] text-[#C9B8A5]/65">Variation du prix de l&apos;entreprise</p>
+            <p className={cn("text-[13px] font-semibold", light ? "text-[#2A2F3A]" : "text-[#E6D6C3]")}>
+              Création de valeur
+            </p>
+            <p className={cn("mt-0.5 text-[12px]", light ? "text-[#5C5F66]" : "text-[#C9B8A5]/65")}>
+              Variation du prix de l&apos;entreprise
+            </p>
           </div>
           <span className="font-mono text-sm text-[#E0742D]/80" aria-hidden>
             ↑
@@ -23,24 +33,40 @@ function ReturnFormulaIntro() {
         </div>
 
         <div className="flex items-center gap-3 py-1" aria-hidden>
-          <span className="h-px flex-1 bg-white/[0.06]" />
+          <span className={cn("h-px flex-1", light ? "bg-[#2A2F3A]/10" : "bg-white/[0.06]")} />
           <span className="font-mono text-xs text-[#E0742D]/55">+</span>
-          <span className="h-px flex-1 bg-white/[0.06]" />
+          <span className={cn("h-px flex-1", light ? "bg-[#2A2F3A]/10" : "bg-white/[0.06]")} />
         </div>
 
         <div className="flex items-baseline justify-between gap-4 py-2.5">
           <div>
-            <p className="text-[13px] font-semibold text-[#E6D6C3]">Distributions</p>
-            <p className="mt-0.5 text-[12px] text-[#C9B8A5]/65">Dividendes et sommes versées</p>
+            <p className={cn("text-[13px] font-semibold", light ? "text-[#2A2F3A]" : "text-[#E6D6C3]")}>
+              Distributions
+            </p>
+            <p className={cn("mt-0.5 text-[12px]", light ? "text-[#5C5F66]" : "text-[#C9B8A5]/65")}>
+              Dividendes et sommes versées
+            </p>
           </div>
           <span className="font-mono text-sm text-[#E6B08C]/80" aria-hidden>
             ↓
           </span>
         </div>
 
-        <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-white/[0.08] pt-4">
-          <p className="text-[13px] font-semibold tracking-tight text-[#E6D6C3]">Rendement total</p>
-          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#C9B8A5]/50">
+        <div
+          className={cn(
+            "mt-2 flex items-baseline justify-between gap-4 border-t pt-4",
+            light ? "border-[#2A2F3A]/10" : "border-white/[0.08]",
+          )}
+        >
+          <p className={cn("text-[13px] font-semibold tracking-tight", light ? "text-[#2A2F3A]" : "text-[#E6D6C3]")}>
+            Rendement total
+          </p>
+          <span
+            className={cn(
+              "font-mono text-[11px] uppercase tracking-[0.14em]",
+              light ? "text-[#5C5F66]" : "text-[#C9B8A5]/50",
+            )}
+          >
             Actionnaire
           </span>
         </div>
@@ -49,7 +75,7 @@ function ReturnFormulaIntro() {
   )
 }
 
-function ReturnDriversPanel({ isVisible }: { isVisible: boolean }) {
+function ReturnDriversPanel({ isVisible, light }: { isVisible: boolean; light: boolean }) {
   return (
     <div
       className={`transition-all duration-1000 delay-150 ${
@@ -57,28 +83,45 @@ function ReturnDriversPanel({ isVisible }: { isVisible: boolean }) {
       }`}
     >
       <div className="mb-7 sm:mb-8">
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/65">
+        <p
+          className={cn(
+            "text-[11px] font-medium uppercase tracking-[0.22em]",
+            light ? "text-slate-500" : "text-[#C9B8A5]/65",
+          )}
+        >
           Pont de valeur
         </p>
-        <h3 className="mt-4 max-w-md text-xl font-semibold tracking-tight text-[#E6D6C3] sm:text-2xl">
+        <h3
+          className={cn(
+            "mt-4 max-w-md text-xl font-semibold tracking-tight sm:text-2xl",
+            light ? "text-[#2A2F3A]" : "text-[#E6D6C3]",
+          )}
+        >
           D&apos;où vient votre rendement
         </h3>
-        <p className="mt-3 max-w-md text-[15px] leading-relaxed text-[#C9B8A5]/75">
+        <p
+          className={cn(
+            "mt-3 max-w-md text-[15px] leading-relaxed",
+            light ? "text-[#5C5F66]" : "text-[#C9B8A5]/75",
+          )}
+        >
           De la valeur de départ au résultat final — levier par levier, réalisé ou projeté.
         </p>
       </div>
 
-      <BusinessReturnWaterfall />
+      <BusinessReturnWaterfall surface={light ? "panel" : "plain"} />
 
-      <p className="mt-7 max-w-lg text-[15px] leading-relaxed text-[#C9B8A5]/78">
+      <p className={cn("mt-7 max-w-lg text-[15px] leading-relaxed", light ? "text-[#5C5F66]" : "text-[#C9B8A5]/78")}>
         Pas seulement «&nbsp;combien ça vaut&nbsp;», mais{" "}
-        <span className="text-[#E6D6C3]">ce que ça vous a rapporté</span> — et ce qui l&apos;explique.
+        <span className={light ? "text-[#2A2F3A]" : "text-[#E6D6C3]"}>ce que ça vous a rapporté</span> — et ce qui
+        l&apos;explique.
       </p>
     </div>
   )
 }
 
-export function LandingBusinessReturnSection() {
+export function LandingBusinessReturnSection({ tone = "dark" }: { tone?: "dark" | "light" }) {
+  const light = tone === "light"
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
 
@@ -98,8 +141,28 @@ export function LandingBusinessReturnSection() {
   }, [])
 
   return (
-    <section id="rendement" ref={sectionRef} className="relative z-10 scroll-mt-36 overflow-x-clip">
-      {/* Même scène continue que la hero */}
+    <section
+      id="rendement"
+      ref={sectionRef}
+      className={cn("relative z-10 scroll-mt-36 overflow-x-clip", light && "bg-[#F0F4F8]")}
+    >
+      {light ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <div
+            className="absolute inset-0 opacity-40"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, rgb(42 47 58 / 0.04) 1px, transparent 1px),
+                linear-gradient(to bottom, rgb(42 47 58 / 0.04) 1px, transparent 1px)
+              `,
+              backgroundSize: "48px 48px",
+              maskImage: "radial-gradient(ellipse 70% 60% at 70% 40%, black 10%, transparent 70%)",
+              WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 70% 40%, black 10%, transparent 70%)",
+            }}
+          />
+          <div className="absolute -right-20 top-1/4 h-72 w-72 rounded-full bg-[#E0742D]/[0.04] blur-3xl" />
+        </div>
+      ) : (
       <div className="pointer-events-none absolute inset-0 bg-[#222732]">
         <div
           className="absolute inset-0 opacity-[0.35]"
@@ -116,6 +179,7 @@ export function LandingBusinessReturnSection() {
         <div className="absolute -top-24 right-[-8%] h-[28rem] w-[28rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
         <div className="absolute bottom-0 left-[-6%] h-[22rem] w-[22rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
       </div>
+      )}
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
         <div
@@ -124,21 +188,32 @@ export function LandingBusinessReturnSection() {
           }`}
         >
           <div className="order-1 lg:order-2 lg:pl-2 xl:pl-6">
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+            <p
+              className={cn(
+                "text-[11px] font-medium uppercase tracking-[0.22em]",
+                light ? "text-slate-500" : "text-[#C9B8A5]/70",
+              )}
+            >
               Rendement
             </p>
-            <h2 className="mt-6 max-w-lg text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-7 sm:text-[2.35rem] sm:leading-[1.12] xl:text-[2.55rem]">
+            <h2
+              className={cn(
+                "mt-6 max-w-lg text-[1.85rem] font-semibold leading-[1.15] tracking-tight sm:mt-7 sm:text-[2.35rem] sm:leading-[1.12] xl:text-[2.55rem]",
+                light ? "text-[#2A2F3A]" : "text-[#E6D6C3]",
+              )}
+            >
               Ce que l&apos;entreprise vous rapporte vraiment
             </h2>
-            <ReturnFormulaIntro />
+            <ReturnFormulaIntro light={light} />
           </div>
 
           <div className="order-2 lg:order-1 lg:pr-2 xl:pr-6">
-            <ReturnDriversPanel isVisible={isVisible} />
+            <ReturnDriversPanel isVisible={isVisible} light={light} />
           </div>
         </div>
       </div>
 
+      {!light ? (
       <div aria-hidden className="relative h-16 overflow-hidden bg-[#222732] sm:h-20">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -bottom-8 left-1/3 h-56 w-56 rounded-full bg-[#E6D6C3]/[0.08] blur-3xl" />
@@ -150,6 +225,7 @@ export function LandingBusinessReturnSection() {
           />
         </svg>
       </div>
+      ) : null}
     </section>
   )
 }

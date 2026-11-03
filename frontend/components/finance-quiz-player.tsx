@@ -53,7 +53,7 @@ export function FinanceQuizPlayer({ quiz }: { quiz: FinanceQuiz }) {
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Link
               href="/contact"
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#2A2F3A] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#E6D6C3] transition hover:bg-[#353b48]"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#2A2F3A] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#E6D6C3] transition duration-200 hover:bg-[#E6D6C3] hover:text-[#222732]"
             >
               DISCUTER DE VOTRE LECTURE
               <ArrowRight className="h-4 w-4 text-[#E0742D]" />
@@ -172,7 +172,7 @@ export function FinanceQuizPlayer({ quiz }: { quiz: FinanceQuiz }) {
             }
             setStep((current) => current + 1)
           }}
-          className="inline-flex items-center gap-2 rounded-md bg-[#2A2F3A] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#E6D6C3] transition hover:bg-[#353b48] disabled:pointer-events-none disabled:opacity-40"
+          className="inline-flex items-center gap-2 rounded-md bg-[#2A2F3A] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#E6D6C3] transition duration-200 hover:bg-[#E6D6C3] hover:text-[#222732] disabled:pointer-events-none disabled:opacity-40"
         >
           {step === total - 1 ? "VOIR MON SCORE" : "SUIVANT"}
           <ArrowRight className="h-4 w-4 text-[#E0742D]" />

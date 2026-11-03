@@ -310,7 +310,7 @@ function ViewToggle({
   )
 }
 
-export function BusinessReturnWaterfall() {
+export function BusinessReturnWaterfall({ surface = "plain" }: { surface?: "plain" | "panel" }) {
   const realized = computeReturnNarrative()
   const projected = computeReturnProjection()
   const [view, setView] = useState<ReturnWaterfallView>("realized")
@@ -369,7 +369,11 @@ export function BusinessReturnWaterfall() {
         </defs>
       </svg>
 
-      <div className="relative overflow-hidden border border-white/[0.08] bg-white/[0.02]">
+      <div
+        className={`relative overflow-hidden border border-white/[0.08] ${
+          surface === "panel" ? "rounded-lg bg-[#222732]" : "bg-white/[0.02]"
+        }`}
+      >
         <div className="border-b border-white/[0.07] px-4 py-5 sm:px-6 sm:py-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <ViewToggle view={view} onChange={setView} />

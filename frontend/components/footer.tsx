@@ -30,10 +30,10 @@ const footerLinks: FooterSection[] = [
     links: [...heroFeatureFooterLinks],
   },
   {
-    label: "Notre service",
+    label: "Nos services",
     links: [
-      { title: "Accompagnement financier fractionnaire", href: "/#approche-modelisys" },
-      { title: "Diagnostic financier et planification", href: "/rapport-de-gestion" },
+      { title: "Accompagnement financier fractionnaire", href: "/accompagnement-financier" },
+      { title: "Solutions Excel", href: "/solutions-excel" },
       { title: "Tarification", href: "/tarification" },
     ],
   },
@@ -87,25 +87,47 @@ export function Footer() {
   }
 
   const scrollToDemo = () => {
-    document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })
+    const demo = document.getElementById("demo")
+    if (demo) {
+      demo.scrollIntoView({ behavior: "smooth" })
+      return
+    }
+    window.location.assign("/#demo")
   }
 
   const linkClass =
-    "group inline-flex items-center gap-2 text-sm text-[#C9B8A5]/85 transition-colors hover:text-[#E6D6C3]"
+    "group inline-flex items-center gap-1.5 text-sm text-[#C9B8A5]/85 transition-colors hover:text-[#E6D6C3]"
 
   return (
     <footer className="relative isolate w-full overflow-hidden">
-      {/* Fond — même split que le hero */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-          <div className="bg-[#2A2F3A]" />
-          <div className="bg-[#1F2430]" />
-        </div>
-        <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-28 -top-24 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -bottom-28 -right-28 h-[560px] w-[560px] rounded-full bg-black/20 blur-3xl" />
-        </div>
+      {/* Fond — même scène que le hero d’accueil */}
+      <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+        <div
+          className="absolute -right-[6%] -top-[22%] h-[70%] w-[55%] rounded-full"
+          aria-hidden
+          style={{
+            background: "radial-gradient(circle, rgba(230,214,195,0.16) 0%, rgba(230,214,195,0) 68%)",
+            filter: "blur(36px)",
+          }}
+        />
+        <div
+          className="absolute -left-[18%] top-[42%] h-[34%] w-[140%] -rotate-[14deg]"
+          aria-hidden
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 0%, rgba(230,214,195,0.14) 28%, rgba(224,116,45,0.28) 62%, transparent 88%)",
+            filter: "blur(22px)",
+          }}
+        />
+        <div
+          className="absolute -left-[10%] bottom-[-8%] h-[18%] w-[120%] -rotate-[12deg]"
+          aria-hidden
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 8%, rgba(224,116,45,0.32) 46%, rgba(230,214,195,0.16) 68%, transparent 88%)",
+            filter: "blur(18px)",
+          }}
+        />
       </div>
 
       <div className="relative z-20 w-full overflow-hidden border-b border-white/10">
@@ -137,8 +159,8 @@ export function Footer() {
           className="pointer-events-none absolute inset-y-0 left-1/2 right-0 z-[1] hidden overflow-hidden lg:block"
           aria-hidden
         >
-          <span className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 select-none text-[clamp(16rem,min(52vw,68vh),48rem)] font-semibold leading-none tracking-tight text-white/[0.055] xl:text-[clamp(18rem,min(48vw,72vh),56rem)]">
-            m<span className="text-[#E0742D]/35">.</span>
+          <span className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 select-none text-[clamp(16rem,min(52vw,68vh),48rem)] font-semibold leading-none tracking-tight text-[#E6D6C3]/[0.08] xl:text-[clamp(18rem,min(48vw,72vh),56rem)]">
+            m<span className="text-[#E0742D]/45">.</span>
           </span>
         </div>
 
@@ -148,18 +170,16 @@ export function Footer() {
           <button
             type="button"
             onClick={scrollToDemo}
-            className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
+            className="group inline-flex items-center gap-2 rounded-full border border-[#E6D6C3]/75 px-5 py-2.5 text-sm text-[#E6D6C3] transition hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732]"
           >
-            PRENDRE RENDEZ-VOUS
-            <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+            <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+            Prendre rendez-vous
           </button>
-          <span className="hidden h-px w-12 bg-white/10 sm:block" />
           <Link
             href="/contact"
-            className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
+            className="px-1 py-2 text-sm text-[#C9B8A5]/90 transition hover:text-[#E6D6C3]"
           >
-            CONTACT
-            <span className="inline-block h-px w-10 bg-[#E0742D]" />
+            Nous contacter
           </Link>
         </AnimatedContainer>
 
@@ -183,7 +203,7 @@ export function Footer() {
             </div>
 
             <div>
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-200">Réseaux sociaux</p>
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#C9B8A5]/80">Réseaux sociaux</p>
               <div className="flex flex-wrap gap-3">
                 {socialLinks.map((s) => {
                   const Icon = s.icon
@@ -207,7 +227,7 @@ export function Footer() {
             {footerLinks.map((section, index) => (
               <AnimatedContainer key={section.label} delay={0.08 + index * 0.06}>
                 <div>
-                  <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-slate-200">
+                  <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-[#C9B8A5]/80">
                     {section.label}
                   </h3>
                   <ul className="space-y-3">
@@ -219,10 +239,12 @@ export function Footer() {
                             className={linkClass}
                             onClick={(e) => handleApprocheLandingLink(e, link.href)}
                           >
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-[#E0742D]" aria-hidden />
                             {link.title}
                           </Link>
                         ) : (
                           <button type="button" onClick={() => scrollToSection(link.href)} className={`${linkClass} text-left`}>
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-[#E0742D]" aria-hidden />
                             {link.title}
                           </button>
                         )}
