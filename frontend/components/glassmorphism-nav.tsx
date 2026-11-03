@@ -4,29 +4,58 @@ import { useState, useEffect, useRef, type MouseEvent } from "react"
 import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
-import { heroFeatureFooterLinks } from "@/lib/hero-features"
 
-const NOTRE_APPROCHE_SECTION = "/#approche-modelisys"
+type NavChild = { name: string; href: string; note: string }
 
-const approcheSubLinks = heroFeatureFooterLinks.map((link) => ({
-  name: link.title,
-  href: link.href,
-}))
+type NavPanel = { text: string; cta: string; href: string }
 
 type NavItem =
   | { name: string; href: string }
-  | { name: string; href: string; children: { name: string; href: string }[] }
+  | { name: string; href?: string; children: NavChild[]; panel: NavPanel }
 
 const desktopNavItems: readonly NavItem[] = [
   { name: "Notre objectif", href: "/#notre-objectif" },
-  { name: "Notre approche", href: NOTRE_APPROCHE_SECTION, children: approcheSubLinks },
+  {
+    name: "Nos services",
+    children: [
+      {
+        name: "Accompagnement financier fractionnaire",
+        href: "/accompagnement-financier",
+        note: "Expertise financière auprès de la direction, sans directeur financier à temps plein.",
+      },
+      {
+        name: "Solutions Excel",
+        href: "/solutions-excel",
+        note: "Des outils de gestion conçus selon vos processus, vos données et les besoins de votre entreprise.",
+      },
+    ],
+    panel: {
+      text: "Un accompagnement financier et des solutions de gestion, pour relier vos données à des décisions concrètes.",
+      cta: "Prendre rendez-vous",
+      href: "/#demo",
+    },
+  },
+  { name: "Notre approche", href: "/#approche-modelisys" },
   {
     name: "Ressources",
     href: "/ressources",
     children: [
-      { name: "Blog", href: "/blog" },
-      { name: "Quiz", href: "/ressources" },
+      {
+        name: "Blog",
+        href: "/blog",
+        note: "Articles pour approfondir la valorisation, le reporting et les projections.",
+      },
+      {
+        name: "Quiz",
+        href: "/ressources",
+        note: "De courts quiz pour situer votre lecture.",
+      },
     ],
+    panel: {
+      text: "Des articles pour structurer vos analyses, et de courts quiz pour situer votre lecture.",
+      cta: "Commencer un quiz",
+      href: "/ressources",
+    },
   },
   { name: "À propos", href: "/a-propos" },
   { name: "Tarification", href: "/tarification" },
@@ -58,37 +87,74 @@ function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
   window.location.hash = hash
 }
 
-function DesktopFlyout({
-  name,
-  href,
-  items,
+function DesktopMenuPanel({
+  item,
+  onNavigate,
 }: {
-  name: string
-  href: string
-  items: { name: string; href: string }[]
+  item: Extract<NavItem, { children: NavChild[] }>
+  onNavigate: () => void
 }) {
   return (
-    <div className="relative group">
-      <Link
-        href={href}
-        onClick={(e) => goToLandingSection(e, href)}
-        className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
-      >
-        {name}
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-      </Link>
-      <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
-        <div className="min-w-[18rem] rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md">
-          {items.map((sub) => (
+    <div className="relative overflow-hidden border-b border-[#E6D6C3]/15 bg-[#161A22]">
+      <div className="relative z-10 mx-auto grid w-full max-w-[1920px] md:grid-cols-[minmax(0,1fr)_minmax(22rem,32rem)]">
+        <div className="flex flex-col justify-center px-5 py-7 sm:px-10 lg:px-16 lg:py-9 xl:px-20">
+          {item.children.map((sub, index) => (
             <Link
-              key={sub.href}
+              key={sub.name}
               href={sub.href}
-              onClick={(e) => goToLandingSection(e, sub.href)}
-              className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
+              onClick={(e) => {
+                goToLandingSection(e, sub.href)
+                onNavigate()
+              }}
+              className="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-4 border-b border-[#E6D6C3]/12 py-5 first:pt-1 last:border-b-0 last:pb-1"
             >
-              {sub.name}
+              <span aria-hidden className="text-[11px] font-medium tabular-nums tracking-[0.18em] text-[#E0742D]">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-lg font-medium leading-snug tracking-[-0.02em] text-[#E6D6C3] transition-colors duration-200 group-hover:text-white">
+                  {sub.name}
+                </span>
+                <span aria-hidden className="mt-1 block max-w-xl text-sm leading-relaxed text-[#C9B8A5]/72">
+                  {sub.note}
+                </span>
+              </span>
+              <span
+                aria-hidden
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#E6D6C3]/40 text-[#E6D6C3] transition duration-200 group-hover:border-[#E0742D] group-hover:bg-[#E0742D] group-hover:text-[#161A22]"
+              >
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </span>
             </Link>
           ))}
+        </div>
+
+        <div className="relative flex flex-col justify-between overflow-hidden border-t border-[#E6D6C3]/12 px-5 py-7 sm:px-10 md:border-t-0 md:border-l md:px-12 md:py-9 lg:px-14 xl:pr-20">
+          <div
+            className="pointer-events-none absolute -right-[20%] -top-[30%] h-[160%] w-[80%] rounded-full"
+            aria-hidden
+            style={{
+              background: "radial-gradient(circle, rgba(230,214,195,0.14) 0%, rgba(230,214,195,0) 68%)",
+              filter: "blur(28px)",
+            }}
+          />
+          <div className="relative">
+            <span className="block h-px w-10 bg-[#E0742D]" aria-hidden />
+            <p className="mt-5 text-[1.65rem] font-medium leading-[1.28] tracking-[-0.02em] text-balance text-[#E6D6C3]">
+              {item.panel.text}
+            </p>
+          </div>
+          <Link
+            href={item.panel.href}
+            onClick={(e) => {
+              goToLandingSection(e, item.panel.href)
+              onNavigate()
+            }}
+            className="relative mt-8 inline-flex w-fit items-center gap-2 rounded-full border border-[#E6D6C3]/75 px-4 py-2 text-sm text-[#E6D6C3] transition hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732]"
+          >
+            <ArrowRight className="h-4 w-4" aria-hidden />
+            {item.panel.cta}
+          </Link>
         </div>
       </div>
     </div>
@@ -97,6 +163,7 @@ function DesktopFlyout({
 
 export function GlassmorphismNav() {
   const [isOpen, setIsOpen] = useState(false)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(true)
   const [hasLoaded, setHasLoaded] = useState(false)
   const [scrolled, setScrolled] = useState(false)
@@ -157,17 +224,25 @@ export function GlassmorphismNav() {
           transition: hasLoaded ? "all 0.5s ease-out" : "opacity 0.8s ease-out, transform 0.8s ease-out",
         }}
       >
-        <div className="relative z-[60] w-full">
+        <div
+          className="relative z-[60] w-full"
+          onMouseLeave={() => setOpenMenu(null)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setOpenMenu(null)
+          }}
+        >
           <div
-            className={`backdrop-blur-md border-b border-white/10 px-5 sm:px-10 lg:px-16 xl:px-20 py-2.5 md:py-4 transition-all duration-300 ${
-              scrolled ? "bg-[#2A2F3A]/92 shadow-lg" : "bg-[#2A2F3A]/78 shadow-md"
-            }`}
+            className={`border-b px-5 sm:px-10 lg:px-16 xl:px-20 py-3 md:py-3.5 transition-colors duration-300 ${
+              openMenu
+                ? "border-transparent bg-[#222732]"
+                : "border-white/10 bg-[#222732]/95 backdrop-blur-md"
+            } ${scrolled && !openMenu ? "shadow-lg" : ""}`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-6 md:gap-8">
                 <Link
                   href="/"
-                  className="flex items-center hover:scale-105 transition-transform duration-200 cursor-pointer"
+                  className="flex items-center cursor-pointer"
                   onClick={(e) => {
                     if (typeof window === "undefined") return
                     if (window.location.pathname !== "/") return
@@ -181,36 +256,77 @@ export function GlassmorphismNav() {
                 </Link>
 
                 <span
-                  className="hidden md:block h-7 w-px shrink-0 bg-gradient-to-b from-[#E0742D]/80 via-white/15 to-transparent"
+                  className="hidden md:block h-5 w-px shrink-0 bg-[#E6D6C3]/25"
                   aria-hidden
                 />
 
                 <div className="hidden md:flex items-center space-x-1">
-                  {desktopNavItems.map((item) =>
-                    "children" in item ? (
-                      <DesktopFlyout key={item.name} name={item.name} href={item.href} items={item.children} />
-                    ) : (
+                  {desktopNavItems.map((item) => {
+                    const itemClass =
+                      "px-2.5 py-2 text-[15px] text-[#C9B8A5]/90 transition-colors duration-200 hover:text-[#E6D6C3] xl:px-3"
+                    const triggerClass = `inline-flex items-center gap-1.5 ${itemClass} ${
+                      openMenu === item.name ? "text-[#E6D6C3] underline decoration-[#E6D6C3] underline-offset-8" : ""
+                    }`
+                    if ("children" in item) {
+                      return item.href ? (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          aria-expanded={openMenu === item.name}
+                          aria-haspopup="true"
+                          onMouseEnter={() => setOpenMenu(item.name)}
+                          onFocus={() => setOpenMenu(item.name)}
+                          onClick={(e) => goToLandingSection(e, item.href!)}
+                          className={triggerClass}
+                        >
+                          {item.name}
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 shrink-0 opacity-70 transition-transform ${openMenu === item.name ? "rotate-180" : ""}`}
+                            aria-hidden
+                          />
+                        </Link>
+                      ) : (
+                        <button
+                          key={item.name}
+                          type="button"
+                          aria-expanded={openMenu === item.name}
+                          aria-haspopup="true"
+                          onMouseEnter={() => setOpenMenu(item.name)}
+                          onFocus={() => setOpenMenu(item.name)}
+                          className={triggerClass}
+                        >
+                          {item.name}
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 shrink-0 opacity-70 transition-transform ${openMenu === item.name ? "rotate-180" : ""}`}
+                            aria-hidden
+                          />
+                        </button>
+                      )
+                    }
+                    return (
                       <Link
                         key={item.name}
                         href={item.href}
+                        onMouseEnter={() => setOpenMenu(null)}
                         onClick={(e) => goToLandingSection(e, item.href)}
-                        className="px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                        className={itemClass}
                       >
                         {item.name}
                       </Link>
-                    ),
-                  )}
+                    )
+                  })}
                 </div>
               </div>
 
               <div className="hidden md:flex items-center gap-3">
                 <Link
                   href="/#demo"
+                  onMouseEnter={() => setOpenMenu(null)}
                   onClick={(e) => goToLandingSection(e, "/#demo")}
-                  className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
+                  className="group inline-flex items-center gap-2 rounded-full border border-[#E6D6C3]/75 px-5 py-2.5 text-sm text-[#E6D6C3] transition hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
                 >
-                  <span>PRENDRE RENDEZ-VOUS</span>
-                  <ArrowRight className="w-4 h-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                  <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  Prendre rendez-vous
                 </Link>
               </div>
 
@@ -238,6 +354,16 @@ export function GlassmorphismNav() {
               </button>
             </div>
           </div>
+          {desktopNavItems.map((item) =>
+            "children" in item && openMenu === item.name ? (
+              <div
+                key={item.name}
+                className="absolute inset-x-0 top-full z-50 hidden animate-in fade-in-0 slide-in-from-top-1 shadow-[0_28px_48px_-24px_rgba(0,0,0,0.55)] duration-200 md:block"
+              >
+                <DesktopMenuPanel item={item} onNavigate={() => setOpenMenu(null)} />
+              </div>
+            ) : null,
+          )}
         </div>
 
         <div className="relative z-40 md:hidden">
@@ -257,24 +383,38 @@ export function GlassmorphismNav() {
           >
             <div className="bg-[#2A2F3A]/92 backdrop-blur-md border border-white/10 rounded-lg p-4 shadow-xl">
               <div className="flex flex-col space-y-1">
-                {mobileNavItems.map((item, index) => (
-                  <Link
-                    key={`${item.href}-${item.name}`}
-                    href={item.href}
-                    className={`text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5 rounded-md py-3 text-left transition-colors duration-200 font-medium cursor-pointer ${
-                      item.indent ? "pl-8 text-sm text-[#C9B8A5]/80" : "px-3"
-                    } ${isOpen ? "animate-mobile-menu-item" : ""}`}
-                    style={{
-                      animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
-                    }}
-                    onClick={(e) => {
-                      goToLandingSection(e, item.href)
-                      setIsOpen(false)
-                    }}
-                  >
-                    {item.name}
-                  </Link>
-                ))}
+                {mobileNavItems.map((item, index) =>
+                  item.href ? (
+                    <Link
+                      key={`${item.href}-${item.name}`}
+                      href={item.href}
+                      className={`text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5 rounded-md py-3 text-left transition-colors duration-200 font-medium cursor-pointer ${
+                        item.indent ? "pl-8 text-sm text-[#C9B8A5]/80" : "px-3"
+                      } ${isOpen ? "animate-mobile-menu-item" : ""}`}
+                      style={{
+                        animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
+                      }}
+                      onClick={(e) => {
+                        goToLandingSection(e, item.href!)
+                        setIsOpen(false)
+                      }}
+                    >
+                      {item.name}
+                    </Link>
+                  ) : (
+                    <p
+                      key={item.name}
+                      className={`px-3 py-3 text-left font-medium text-[#E6D6C3] ${
+                        isOpen ? "animate-mobile-menu-item" : ""
+                      }`}
+                      style={{
+                        animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
+                      }}
+                    >
+                      {item.name}
+                    </p>
+                  ),
+                )}
                 <div className="h-px bg-white/10 my-2" />
                 <Link
                   href="/#demo"

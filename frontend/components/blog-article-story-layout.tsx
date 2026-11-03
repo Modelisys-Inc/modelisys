@@ -6,29 +6,12 @@ import { Footer } from "@/components/footer"
 import { cn } from "@/lib/utils"
 
 function BlogArticleBackground() {
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-100 via-slate-50/95 to-slate-100" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(224,116,45,0.06),transparent_55%)]" />
-      <div
-        className="absolute inset-0 opacity-[0.35]"
-        style={{
-          backgroundImage: `
-                linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
-                linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px)
-              `,
-          backgroundSize: "48px 48px",
-          maskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
-          WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
-        }}
-      />
-    </div>
-  )
+  return <div className="pointer-events-none absolute inset-0 bg-[#F8FAFC]" aria-hidden />
 }
 
 export function BlogArticlePageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-100/90">
+    <div className="relative min-h-screen bg-[#F8FAFC]">
       <BlogArticleBackground />
       <GlassmorphismNav />
       <main className="relative z-10 pb-16 pt-24 sm:pb-24">{children}</main>

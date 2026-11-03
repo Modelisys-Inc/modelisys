@@ -87,9 +87,9 @@ test.describe("Navigation & Routing", () => {
     await expect(
       page.getByRole("heading", { name: "Des solutions financières adaptées à vos ambitions" }),
     ).toBeVisible()
-    await expect(page.getByText("À partir de 3 500 $")).toBeVisible()
-    await expect(page.getByText("À partir de 750 $ par mois")).toBeVisible()
-    await expect(page.getByText("Sur devis")).toBeVisible()
+    await expect(page.getByText("À partir de 3 500 $").first()).toBeVisible()
+    await expect(page.getByText("À partir de 750 $ par mois").first()).toBeVisible()
+    await expect(page.getByText("Sur devis").first()).toBeVisible()
     await expect(page.getByRole("link", { name: "Discuter de vos besoins financiers" })).toHaveAttribute(
       "href",
       "/#demo",
@@ -97,7 +97,7 @@ test.describe("Navigation & Routing", () => {
 
     const faq = page.locator("#questions-frequentes")
     await faq.scrollIntoViewIfNeeded()
-    await expect(faq.getByRole("heading", { name: "Questions fréquentes" })).toBeVisible()
+    await expect(faq.getByRole("heading", { name: "Avant de démarrer" })).toBeVisible()
     const question = faq.getByRole("button", {
       name: "Qu’est-ce qu’un accompagnement financier fractionnaire ?",
     })

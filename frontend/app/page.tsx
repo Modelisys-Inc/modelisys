@@ -3,11 +3,11 @@ import { LandingHashScroll } from "@/components/landing-hash-scroll"
 import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { HeroSection } from "@/components/hero-section"
 import { HeroMarquee } from "@/components/hero-marquee"
-import { LandingBusinessReturnSection } from "@/components/landing-business-return-section"
-import { LandingObjectifSection } from "@/components/landing-objectif-section"
-import { LandingQuotidienMarquee } from "@/components/landing-quotidien-marquee"
-import { LandingApprocheSection } from "@/components/landing-approche-section"
-import { LandingRapportSection } from "@/components/landing-rapport-section"
+import { LandingHomeObjectifSection } from "@/components/landing-home-objectif-section"
+import { LandingServicesPairSection } from "@/components/landing-services-pair-section"
+import { LandingHomeApprocheSection } from "@/components/landing-home-approche-section"
+import { LandingHomeCloseSection } from "@/components/landing-home-close-section"
+import { LandingHomeRail } from "@/components/landing-home-rail"
 import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
 import { PostFeaturesSection } from "@/components/post-features-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
@@ -17,6 +17,7 @@ import {
   LandingEmbedBreakout,
   LandingMobileDesktopFrame,
 } from "@/components/landing-mobile-desktop-frame"
+import { LANDING_SERVICE_MARQUEE_ITEMS } from "@/lib/landing-services-content"
 
 type LandingSearchParams = Promise<{ embed?: string | string[] }>
 
@@ -38,36 +39,25 @@ export async function generateMetadata({
 
 function LandingPageBody() {
   return (
-    <div className="min-h-screen bg-slate-50 overflow-hidden">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <main className="min-h-screen relative">
         <div className="relative z-10">
           <LandingEmbedBreakout />
           <LandingHashScroll />
           <GlassmorphismNav />
-          <HeroSection />
-          <HeroMarquee />
-          <section aria-hidden className="relative h-20 sm:h-24 overflow-hidden bg-[#222732]">
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="absolute -top-12 left-1/3 w-72 h-72 bg-[#E6D6C3]/10 rounded-full blur-3xl" />
-            </div>
-            <svg
-              viewBox="0 0 1440 120"
-              preserveAspectRatio="none"
-              className="absolute inset-x-0 bottom-0 h-full w-full"
-            >
-              <path
-                d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-                fill="#222732"
-              />
-            </svg>
-          </section>
-          <LandingBusinessReturnSection />
-          <LandingObjectifSection />
-          <LandingQuotidienMarquee />
-          <LandingApprocheSection />
-          <LandingRapportSection />
-          <LandingBlogTeaserSection />
-          <PostFeaturesSection />
+          <HeroSection variant="services" />
+          <HeroMarquee
+            items={LANDING_SERVICE_MARQUEE_ITEMS}
+            ariaLabel="Insights — performance, trésorerie et valeur"
+          />
+          <LandingHomeRail>
+            <LandingHomeObjectifSection />
+            <LandingServicesPairSection />
+            <LandingHomeApprocheSection />
+            <LandingHomeCloseSection />
+            <LandingBlogTeaserSection />
+            <PostFeaturesSection />
+          </LandingHomeRail>
           <DemoBookingSection />
           <EmailSubscriptionSection />
           <Footer />

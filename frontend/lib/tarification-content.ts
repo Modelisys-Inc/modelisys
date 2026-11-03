@@ -1,5 +1,19 @@
 export const TARIFICATION_PATH = "/tarification"
 
+/** Bande blanche sous la hero : pourquoi Modelisys est utile. */
+export const TARIFICATION_MARQUEE_ITEMS = [
+  "Une lecture financière avec la direction",
+  "Sans embaucher un directeur financier à temps plein",
+  "Relier les décisions à la valeur",
+  "Voir ce qui crée ou détruit de la valeur",
+  "Comprendre la performance et la trésorerie",
+  "Un suivi adapté à la structure de l’entreprise",
+  "Isoler les leviers qui comptent vraiment",
+  "Des outils conçus autour de votre réalité",
+  "Rendre l’information financière plus utile",
+  "Des décisions plus éclairées",
+] as const
+
 export const TARIFICATION_OFFERS = [
   {
     title: "Diagnostic financier et planification",

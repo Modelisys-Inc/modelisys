@@ -17,15 +17,16 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   // No template: existing pages already include "| Modelisys" /
   // "| Blog Modelisys" in their title. Adding a template would double up.
-  title: "Modelisys — Accompagnement financier fractionnaire",
+  title: "Modelisys — Accompagnement financier et solutions Excel",
   description:
-    "Accompagnement financier fractionnaire pour les propriétaires de PME. Modelisys aide à mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
+    "Deux services complémentaires pour les dirigeants de PME : un accompagnement financier fractionnaire, et des solutions Excel sur mesure. Lire la performance, la trésorerie et la valeur, avec des fichiers qui suivent.",
   applicationName: "Modelisys",
   authors: [{ name: "Modelisys" }],
   creator: "Modelisys",
   publisher: "Modelisys",
   keywords: [
     "accompagnement financier fractionnaire",
+    "solutions Excel",
     "création de valeur",
     "valeur d'entreprise",
     "PME",
@@ -44,15 +45,15 @@ export const metadata: Metadata = {
     locale: "fr_CA",
     url: "/",
     siteName: "Modelisys",
-    title: "Modelisys — Accompagnement financier fractionnaire",
+    title: "Modelisys — Accompagnement financier et solutions Excel",
     description:
-      "Accompagnement financier fractionnaire pour les propriétaires de PME. Mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
+      "Deux services complémentaires pour les dirigeants de PME : un accompagnement financier fractionnaire, et des solutions Excel sur mesure.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Modelisys — Accompagnement financier fractionnaire",
+    title: "Modelisys — Accompagnement financier et solutions Excel",
     description:
-      "Accompagnement financier fractionnaire pour les propriétaires de PME. Mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
+      "Deux services complémentaires pour les dirigeants de PME : un accompagnement financier fractionnaire, et des solutions Excel sur mesure.",
   },
   // Default: noindex everything. The (public) layout and the landing page
   // override to allow indexing on marketing/legal pages.
@@ -73,7 +74,7 @@ const organizationJsonLd = {
   url: SITE_URL,
   logo: `${SITE_URL}/images/modelisys-logo-noir.svg`,
   description:
-    "Accompagnement financier fractionnaire pour les propriétaires de PME. Modelisys aide à mieux lire la comptabilité, isoler les leviers de valeur et décider au rythme de l’entreprise.",
+    "Deux services complémentaires pour les dirigeants de PME : un accompagnement financier fractionnaire, et des solutions Excel sur mesure.",
   areaServed: "CA",
   knowsLanguage: ["fr-CA", "en-CA"],
 }
