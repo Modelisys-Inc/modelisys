@@ -1,8 +1,6 @@
 "use client"
 
-import type { ComponentProps, ReactNode } from "react"
 import type React from "react"
-import { motion, useReducedMotion } from "framer-motion"
 import { ArrowRight, FacebookIcon, InstagramIcon, LinkedinIcon } from "lucide-react"
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
@@ -166,7 +164,7 @@ export function Footer() {
 
         <div className="relative z-10">
         {/* Actions rapides — même ton que les CTA du hero */}
-        <AnimatedContainer className="mb-8 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5 sm:mb-10 sm:gap-5 sm:pb-6">
+        <div className="mb-8 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5 sm:mb-10 sm:gap-5 sm:pb-6">
           <button
             type="button"
             onClick={scrollToDemo}
@@ -181,11 +179,11 @@ export function Footer() {
           >
             Nous contacter
           </Link>
-        </AnimatedContainer>
+        </div>
 
         <div className="relative grid gap-14 lg:grid-cols-2 lg:gap-16 xl:gap-24">
           {/* Colonne marque — alignée sur le panneau gauche du hero */}
-          <AnimatedContainer className="space-y-8">
+          <div className="space-y-8">
             <p className="text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl">
               modelisys<span className="text-[#E0742D]">.</span>
             </p>
@@ -220,12 +218,12 @@ export function Footer() {
                 })}
               </div>
             </div>
-          </AnimatedContainer>
+          </div>
 
           {/* Liens — colonnes sur fond droit du split */}
           <div className="grid grid-cols-2 gap-x-8 gap-y-10 lg:pt-2">
-            {footerLinks.map((section, index) => (
-              <AnimatedContainer key={section.label} delay={0.08 + index * 0.06}>
+            {footerLinks.map((section) => (
+              <div key={section.label}>
                 <div>
                   <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-[#C9B8A5]/80">
                     {section.label}
@@ -252,7 +250,7 @@ export function Footer() {
                     ))}
                   </ul>
                 </div>
-              </AnimatedContainer>
+              </div>
             ))}
           </div>
         </div>
@@ -264,101 +262,6 @@ export function Footer() {
         </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .footer-marquee-mask {
-          mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
-          -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
-        }
-
-        .footer-marquee-track {
-          display: flex;
-          width: max-content;
-          will-change: transform;
-          animation: footerMarqueeLeft 32s linear infinite;
-        }
-
-        .footer-marquee-row {
-          display: flex;
-          align-items: center;
-          gap: 28px;
-          padding: 14px 28px;
-        }
-
-        .footer-marquee-item {
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          white-space: nowrap;
-        }
-
-        .footer-marquee-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 999px;
-          background: rgb(224 116 45 / 0.95);
-          box-shadow: 0 0 0 3px rgb(224 116 45 / 0.15);
-        }
-
-        .footer-marquee-text {
-          font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.03em;
-          color: rgb(230 214 195 / 0.88);
-        }
-
-        @media (min-width: 640px) {
-          .footer-marquee-text {
-            font-size: 13px;
-          }
-          .footer-marquee-row {
-            gap: 36px;
-            padding: 16px 36px;
-          }
-        }
-
-        @keyframes footerMarqueeLeft {
-          from {
-            transform: translateX(0);
-          }
-          to {
-            transform: translateX(-50%);
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .footer-marquee-track {
-            animation: none;
-            transform: none;
-          }
-        }
-      `}</style>
     </footer>
-  )
-}
-
-type ViewAnimationProps = {
-  delay?: number
-  className?: ComponentProps<typeof motion.div>["className"]
-  children: ReactNode
-}
-
-function AnimatedContainer({ className, delay = 0.1, children }: ViewAnimationProps) {
-  const shouldReduceMotion = useReducedMotion()
-
-  if (shouldReduceMotion) {
-    return <div className={className}>{children}</div>
-  }
-
-  return (
-    <motion.div
-      initial={{ filter: "blur(4px)", translateY: -8, opacity: 0 }}
-      whileInView={{ filter: "blur(0px)", translateY: 0, opacity: 1 }}
-      viewport={{ once: true }}
-      transition={{ delay, duration: 0.8 }}
-      className={className}
-    >
-      {children}
-    </motion.div>
   )
 }

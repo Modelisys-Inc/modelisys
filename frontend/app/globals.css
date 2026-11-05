@@ -481,3 +481,139 @@ input[type="password"]::-ms-clear {
     transform: translate(-50%, -50%);
   }
 }
+
+/* Bandes défilantes. CSS global : une durée injectée dans styled-jsx
+   détache le nom d'animation de @keyframes au build de production. */
+.hero-marquee-mask {
+  mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+}
+
+.hero-marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: heroMarqueeLeft var(--hero-marquee-duration, 90s) linear infinite;
+}
+
+.hero-marquee-row {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 20px 32px;
+}
+
+.hero-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.hero-marquee-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(230, 176, 140, 0.9);
+  box-shadow: 0 0 0 4px rgba(230, 176, 140, 0.12);
+}
+
+.hero-marquee-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(230, 214, 195, 0.9);
+}
+
+.hero-marquee-mask.is-light .hero-marquee-dot {
+  background: #e0742d;
+  box-shadow: 0 0 0 4px rgba(224, 116, 45, 0.14);
+}
+
+.hero-marquee-mask.is-light .hero-marquee-text {
+  color: #222732;
+}
+
+@keyframes heroMarqueeLeft {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-marquee-track {
+    animation: none;
+    transform: none;
+  }
+}
+
+.footer-marquee-mask {
+  mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+}
+
+.footer-marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: footerMarqueeLeft 32s linear infinite;
+}
+
+.footer-marquee-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 14px 28px;
+}
+
+.footer-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.footer-marquee-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(224 116 45 / 0.95);
+  box-shadow: 0 0 0 3px rgb(224 116 45 / 0.15);
+}
+
+.footer-marquee-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgb(230 214 195 / 0.88);
+}
+
+@media (min-width: 640px) {
+  .footer-marquee-text {
+    font-size: 13px;
+  }
+
+  .footer-marquee-row {
+    gap: 36px;
+    padding: 16px 36px;
+  }
+}
+
+@keyframes footerMarqueeLeft {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .footer-marquee-track {
+    animation: none;
+    transform: none;
+  }
+}

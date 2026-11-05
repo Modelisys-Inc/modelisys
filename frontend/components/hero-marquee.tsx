@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { TrendingUp } from "lucide-react"
 import { HERO_INSIGHT_MARQUEE_ITEMS } from "@/lib/hero-narrative-metrics"
 
@@ -33,25 +33,26 @@ export function HeroMarquee({
           ? "relative isolate z-0 overflow-hidden border-y border-[#2A2F3A]/10 bg-white"
           : "relative isolate z-0 overflow-hidden border-y border-white/20 bg-[#222732]"
       }
+      style={{ "--hero-marquee-duration": duration } as CSSProperties}
     >
 
       <div className="relative">
-        <div className={`marquee-mask${light ? " is-light" : ""}`}>
-          <div className="marquee-track">
-            <div className="marquee-row" aria-label={ariaLabel}>
+        <div className={`hero-marquee-mask${light ? " is-light" : ""}`}>
+          <div className="hero-marquee-track">
+            <div className="hero-marquee-row" aria-label={ariaLabel}>
               {items.map((text) => (
-                <div key={text} className="marquee-item">
-                  <span className="marquee-dot" />
-                  <span className="marquee-text">{text}</span>
+                <div key={text} className="hero-marquee-item">
+                  <span className="hero-marquee-dot" />
+                  <span className="hero-marquee-text">{text}</span>
                 </div>
               ))}
             </div>
 
-            <div className="marquee-row" aria-hidden="true">
+            <div className="hero-marquee-row" aria-hidden="true">
               {items.map((text) => (
-                <div key={`dup-${text}`} className="marquee-item">
-                  <span className="marquee-dot" />
-                  <span className="marquee-text">{text}</span>
+                <div key={`dup-${text}`} className="hero-marquee-item">
+                  <span className="hero-marquee-dot" />
+                  <span className="hero-marquee-text">{text}</span>
                 </div>
               ))}
             </div>
@@ -71,74 +72,6 @@ export function HeroMarquee({
           <span className="text-sm font-semibold tracking-wide">{label}</span>
         </div>
       </div>
-
-      <style jsx>{`
-        .marquee-mask {
-          mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
-          -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
-        }
-
-        .marquee-track {
-          display: flex;
-          width: max-content;
-          will-change: transform;
-          animation: marqueeLeft ${duration} linear infinite;
-        }
-
-        .marquee-row {
-          display: flex;
-          align-items: center;
-          gap: 32px;
-          padding: 20px 32px;
-        }
-
-        .marquee-item {
-          display: inline-flex;
-          align-items: center;
-          gap: 12px;
-          white-space: nowrap;
-        }
-
-        .marquee-dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 999px;
-          background: rgba(230, 176, 140, 0.9);
-          box-shadow: 0 0 0 4px rgba(230, 176, 140, 0.12);
-        }
-
-        .marquee-text {
-          font-size: 13px;
-          font-weight: 600;
-          letter-spacing: 0.02em;
-          color: rgba(230, 214, 195, 0.9);
-        }
-
-        .is-light .marquee-dot {
-          background: #e0742d;
-          box-shadow: 0 0 0 4px rgba(224, 116, 45, 0.14);
-        }
-
-        .is-light .marquee-text {
-          color: #222732;
-        }
-
-        @keyframes marqueeLeft {
-          from {
-            transform: translateX(0);
-          }
-          to {
-            transform: translateX(-50%);
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .marquee-track {
-            animation: none;
-            transform: none;
-          }
-        }
-      `}</style>
     </section>
   )
 }

@@ -107,7 +107,14 @@ export function LandingServicesPairSection() {
                 <p className="mt-5 max-w-xl text-[15px] leading-[1.75] text-[#C9B8A5]/82 sm:text-base">
                   {service.lead}
                 </p>
-                <ul className="mt-7 max-w-xl space-y-3">
+                <Link
+                  href={service.href}
+                  className="group mt-6 inline-flex items-center gap-2.5 rounded-full border border-[#E6D6C3]/75 px-5 py-2.5 text-sm text-[#E6D6C3] transition duration-200 hover:border-[#E6D6C3] hover:bg-[#E6D6C3] hover:text-[#222732]"
+                >
+                  <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  {service.linkLabel}
+                </Link>
+                <ul className="mt-8 max-w-xl space-y-3">
                   {service.points.map((point) => (
                     <li key={point} className="flex gap-3 text-[15px] leading-relaxed text-[#C9B8A5]/78">
                       <span className="mt-[0.7rem] h-px w-3 shrink-0 bg-[#E0742D]" aria-hidden />
@@ -124,13 +131,6 @@ export function LandingServicesPairSection() {
                     ))}
                   </div>
                 ) : null}
-                <Link
-                  href={service.href}
-                  className="group mt-8 inline-flex items-center gap-2 text-xs font-semibold tracking-[0.08em] text-[#E6D6C3] transition hover:text-white"
-                >
-                  {service.linkLabel}
-                  <ArrowRight className="h-3.5 w-3.5 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                </Link>
               </article>
             ))}
           </div>
